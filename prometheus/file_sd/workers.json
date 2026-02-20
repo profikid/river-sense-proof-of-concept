@@ -109,15 +109,6 @@
   },
   {
     "targets": [
-      "vector-worker-b63544a02b43:9100"
-    ],
-    "labels": {
-      "stream_id": "b63544a0-2b43-40ca-9114-b546f3849492",
-      "stream_name": "johoe3"
-    }
-  },
-  {
-    "targets": [
       "vector-worker-1f01d5fa77a5:9100"
     ],
     "labels": {
@@ -168,6 +159,15 @@
     "labels": {
       "stream_id": "1e48d340-21dd-466e-b805-49d2b23b21bb",
       "stream_name": "aaaaaaaaa"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-b63544a02b43:9100"
+    ],
+    "labels": {
+      "stream_id": "b63544a0-2b43-40ca-9114-b546f3849492",
+      "stream_name": "johoe3"
     }
   },
   {

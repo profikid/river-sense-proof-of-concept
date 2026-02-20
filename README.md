@@ -64,6 +64,9 @@ graph TD
 ├── grafana/
 │   ├── dashboards/vector-flow.json
 │   └── provisioning/
+│       ├── alerting/alert_rules.yml
+│       ├── dashboards/dashboard.yml
+│       └── datasources/datasource.yml
 ├── frontend/
 │   ├── Dockerfile
 │   ├── nginx.conf
@@ -210,6 +213,7 @@ Grafana is auto-provisioned with:
 
 - Prometheus datasource (`uid: prometheus`)
 - Dashboard: **Vector Flow Overview** (`uid: vector-flow`)
+- Alert rule group: **vector-flow-alerts** (provisioned from `grafana/provisioning/alerting/alert_rules.yml`)
 
 The frontend embeds this dashboard and passes the selected stream via `var-stream_name`.
 Dashboard panels include optical-flow metrics, worker memory/GPU observability, a running-stream count stat, and a fleet state pie chart (`running`, `deactivated`, `error`).
@@ -219,6 +223,31 @@ Frontend routes:
 - `/` Stream configuration + live preview.
 - `/dashboard` Embedded Grafana overview.
 - `?stream=<stream_id>` URL state for selected stream (used by both routes).
+
+### Grafana Alerts
+
+Provisioned alert rules:
+
+- `Stream Error State Detected` (`vector_flow_streams_by_state{state="error"} > 0`)
+- `Running Streams Below Active Streams` (`vector_flow_active_streams_total > vector_flow_running_streams_total`)
+- `Low Processing FPS` (per stream, `avg_over_time(vector_flow_fps[2m]) < 5`)
+- `Worker Memory High` (per stream, `vector_flow_worker_memory_percent > 90`)
+
+All rules are provisioned with `isPaused: true` so you can activate them explicitly.
+
+To activate all rules:
+
+```bash
+perl -0pi -e 's/isPaused: true/isPaused: false/g' grafana/provisioning/alerting/alert_rules.yml
+docker compose restart grafana
+```
+
+To pause them again:
+
+```bash
+perl -0pi -e 's/isPaused: false/isPaused: true/g' grafana/provisioning/alerting/alert_rules.yml
+docker compose restart grafana
+```
 
 ## Stream Validation and Errors
 

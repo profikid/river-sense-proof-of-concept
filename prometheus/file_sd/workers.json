@@ -1,0 +1,20 @@
+[
+  {
+    "targets": [
+      "vector-worker-d3db111e67b3:9100"
+    ],
+    "labels": {
+      "stream_id": "d3db111e-67b3-46ee-93d7-fd285eddd75d",
+      "stream_name": "smoketest"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-4ba301001829:9100"
+    ],
+    "labels": {
+      "stream_id": "4ba30100-1829-4617-8bbf-7ef3c8389f73",
+      "stream_name": "another stream"
+    }
+  }
+]

@@ -1,0 +1,120 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: vectorflow-db
+    environment:
+      POSTGRES_USER: flow_admin
+      POSTGRES_PASSWORD: flow_password
+      POSTGRES_DB: flow_db
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flow_admin -d flow_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - vectorflow
+
+  redis:
+    image: redis:7-alpine
+    container_name: vectorflow-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks:
+      - vectorflow
+
+  api:
+    build: ./backend
+    container_name: vectorflow-api
+    environment:
+      DATABASE_URL: postgresql+psycopg2://flow_admin:flow_password@db:5432/flow_db
+      REDIS_URL: redis://redis:6379/0
+      REDIS_CHANNEL: flow.frames
+      WORKER_IMAGE: vectorflow-worker:latest
+      WORKER_BUILD_CONTEXT: /opt/worker
+      DOCKER_NETWORK: vectorflow
+      PROMETHEUS_SD_FILE: /prometheus_sd/workers.json
+      CORS_ORIGINS: http://localhost:5173,http://localhost:3000,http://localhost:4173
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./worker:/opt/worker:ro
+      - ./prometheus/file_sd:/prometheus_sd
+    networks:
+      - vectorflow
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: vectorflow-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/file_sd:/etc/prometheus/file_sd:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - api
+    networks:
+      - vectorflow
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: vectorflow-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - vectorflow
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:8000
+        VITE_GRAFANA_DASHBOARD_URL: http://localhost:3000/d/vector-flow/vector-flow-overview
+    container_name: vectorflow-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+    networks:
+      - vectorflow
+
+volumes:
+  pgdata:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  vectorflow:
+    name: vectorflow

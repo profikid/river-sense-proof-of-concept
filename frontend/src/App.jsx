@@ -63,6 +63,26 @@ function toWsBase(httpBase) {
   return httpBase.replace("http://", "ws://");
 }
 
+function parseLocationState() {
+  const url = new URL(window.location.href);
+  const view = url.pathname.startsWith("/dashboard") ? "dashboard" : "config";
+  const selected = url.searchParams.get("stream");
+  return {
+    view,
+    selectedStreamId: selected && selected.trim() ? selected : null,
+  };
+}
+
+function buildLocation(view, selectedStreamId) {
+  const pathname = view === "dashboard" ? "/dashboard" : "/";
+  const params = new URLSearchParams();
+  if (selectedStreamId) {
+    params.set("stream", selectedStreamId);
+  }
+  const query = params.toString();
+  return `${pathname}${query ? `?${query}` : ""}`;
+}
+
 function streamToForm(stream) {
   return {
     name: stream.name ?? "",
@@ -153,8 +173,10 @@ async function apiRequest(path, options = {}) {
 }
 
 export default function App() {
+  const initialLocation = parseLocationState();
   const [streams, setStreams] = useState([]);
-  const [selectedStreamId, setSelectedStreamId] = useState(null);
+  const [selectedStreamId, setSelectedStreamId] = useState(initialLocation.selectedStreamId);
+  const [currentView, setCurrentView] = useState(initialLocation.view);
   const [form, setForm] = useState(DEFAULT_FORM);
   const [editingId, setEditingId] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -197,20 +219,51 @@ export default function App() {
         vectors: 0,
       };
 
+  const switchView = (nextView) => {
+    if (nextView === currentView) {
+      return;
+    }
+    const nextLocation = buildLocation(nextView, selectedStreamId);
+    window.history.pushState(null, "", nextLocation);
+    setCurrentView(nextView);
+  };
+
   const loadStreams = async () => {
     const data = await apiRequest("/streams");
     setStreams(data);
 
-    if (data.length === 0) {
-      setSelectedStreamId(null);
-      return;
-    }
-
-    const stillExists = data.some((stream) => stream.id === selectedStreamId);
-    if (!selectedStreamId || !stillExists) {
-      setSelectedStreamId(data[0].id);
-    }
+    setSelectedStreamId((currentSelectedId) => {
+      if (data.length === 0) {
+        return null;
+      }
+      const stillExists = currentSelectedId
+        ? data.some((stream) => stream.id === currentSelectedId)
+        : false;
+      if (!currentSelectedId || !stillExists) {
+        return data[0].id;
+      }
+      return currentSelectedId;
+    });
   };
+
+  useEffect(() => {
+    const syncFromLocation = () => {
+      const locationState = parseLocationState();
+      setCurrentView(locationState.view);
+      setSelectedStreamId(locationState.selectedStreamId);
+    };
+
+    window.addEventListener("popstate", syncFromLocation);
+    return () => window.removeEventListener("popstate", syncFromLocation);
+  }, []);
+
+  useEffect(() => {
+    const nextLocation = buildLocation(currentView, selectedStreamId);
+    const currentLocation = `${window.location.pathname}${window.location.search}`;
+    if (nextLocation !== currentLocation) {
+      window.history.replaceState(null, "", nextLocation);
+    }
+  }, [currentView, selectedStreamId]);
 
   useEffect(() => {
     const run = async () => {
@@ -234,8 +287,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!selectedStreamId) {
+    if (!selectedStreamId || currentView !== "config") {
       setFramePayload(null);
+      setWsStatus("disconnected");
       return;
     }
 
@@ -290,7 +344,7 @@ export default function App() {
       }
       setWsStatus("disconnected");
     };
-  }, [selectedStreamId]);
+  }, [selectedStreamId, currentView]);
 
   useEffect(() => {
     if (!framePayload?.frame_b64 || !canvasRef.current) {
@@ -356,6 +410,7 @@ export default function App() {
   };
 
   const handleEdit = (stream) => {
+    setSelectedStreamId(stream.id);
     setEditingId(stream.id);
     setForm(streamToForm(stream));
   };
@@ -422,213 +477,262 @@ export default function App() {
         <div>
           <h1>Vector Flow Fleet Manager</h1>
           <p>Add stream URL first, then tune live settings and save to apply worker processing.</p>
+          <div className="view-toggle" role="tablist" aria-label="Application views">
+            <button
+              type="button"
+              className={`btn tiny ${currentView === "config" ? "primary active" : ""}`}
+              onClick={() => switchView("config")}
+            >
+              Stream Config
+            </button>
+            <button
+              type="button"
+              className={`btn tiny ${currentView === "dashboard" ? "primary active" : ""}`}
+              onClick={() => switchView("dashboard")}
+            >
+              Dashboard
+            </button>
+          </div>
         </div>
         <div className="header-meta">
           <span className={`pill ${wsStatus}`}>WebSocket: {wsStatus}</span>
           <span className="pill">API: {API_BASE}</span>
+          <span className="pill">Selected: {selectedStream?.name || "All streams"}</span>
         </div>
       </header>
 
-      <main className="app-grid">
-        <section className="panel controls-panel">
-          <h2>{editingId ? "Tune Stream Config" : "Add Stream"}</h2>
+      {currentView === "config" ? (
+        <main className="app-grid">
+          <section className="panel controls-panel">
+            <h2>{editingId ? "Tune Stream Config" : "Add Stream"}</h2>
 
-          <form onSubmit={handleSubmit} className="stream-form">
-            <label>
-              Name
-              <input
-                required
-                value={form.name}
-                onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                placeholder="Entrance Camera"
-              />
-            </label>
+            <form onSubmit={handleSubmit} className="stream-form">
+              <label>
+                Name
+                <input
+                  required
+                  value={form.name}
+                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                  placeholder="Entrance Camera"
+                />
+              </label>
 
-            <label>
-              RTSP / Video URL
-              <input
-                required
-                value={form.rtsp_url}
-                onChange={(event) => setForm((current) => ({ ...current, rtsp_url: event.target.value }))}
-              />
-            </label>
+              <label>
+                RTSP / Video URL
+                <input
+                  required
+                  value={form.rtsp_url}
+                  onChange={(event) => setForm((current) => ({ ...current, rtsp_url: event.target.value }))}
+                />
+              </label>
 
-            <div className="config-section">
-              <h3>Layers</h3>
-              <div className="toggle-grid">
-                {TOGGLE_FIELDS.map((field) => (
-                  <label className="checkbox-row" key={field.key}>
-                    <input
-                      type="checkbox"
-                      checked={form[field.key]}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, [field.key]: event.target.checked }))
-                      }
-                    />
-                    {field.label}
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div className="config-section">
-              <h3>Processing</h3>
-              <div className="slider-grid">
-                {SLIDER_FIELDS.map((field) => {
-                  const bounds = NUMERIC_FIELDS[field.key];
-                  return (
-                    <label key={field.key}>
-                      <span className="slider-label">
-                        {field.label}
-                        <strong>
-                          {form[field.key]}
-                          {field.unit}
-                        </strong>
-                      </span>
+              <div className="config-section">
+                <h3>Layers</h3>
+                <div className="toggle-grid">
+                  {TOGGLE_FIELDS.map((field) => (
+                    <label className="checkbox-row" key={field.key}>
                       <input
-                        type="range"
-                        min={bounds.min}
-                        max={bounds.max}
-                        step={bounds.step}
-                        value={form[field.key]}
-                        onChange={(event) => handleSliderChange(field.key, event.target.value)}
+                        type="checkbox"
+                        checked={form[field.key]}
+                        onChange={(event) =>
+                          setForm((current) => ({ ...current, [field.key]: event.target.checked }))
+                        }
                       />
+                      {field.label}
                     </label>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
-            </div>
 
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={form.is_active}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, is_active: event.target.checked }))
-                }
-              />
-              Start worker immediately
-            </label>
+              <div className="config-section">
+                <h3>Processing</h3>
+                <div className="slider-grid">
+                  {SLIDER_FIELDS.map((field) => {
+                    const bounds = NUMERIC_FIELDS[field.key];
+                    return (
+                      <label key={field.key}>
+                        <span className="slider-label">
+                          {field.label}
+                          <strong>
+                            {form[field.key]}
+                            {field.unit}
+                          </strong>
+                        </span>
+                        <input
+                          type="range"
+                          min={bounds.min}
+                          max={bounds.max}
+                          step={bounds.step}
+                          value={form[field.key]}
+                          onChange={(event) => handleSliderChange(field.key, event.target.value)}
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={form.is_active}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, is_active: event.target.checked }))
+                  }
+                />
+                Start worker immediately
+              </label>
+
+              <div className="row">
+                <button disabled={busy} type="submit" className="btn primary">
+                  {editingId ? "Save Config" : "Create Stream"}
+                </button>
+                {editingId && (
+                  <button disabled={busy} type="button" className="btn ghost" onClick={resetForm}>
+                    Cancel Edit
+                  </button>
+                )}
+              </div>
+            </form>
+
+            {notice && <p className="notice">{notice}</p>}
+            {error && <p className="error">{error}</p>}
+
+            <h2>Stream Fleet</h2>
+            <div className="stream-list">
+              {streams.length === 0 && <p className="muted">No streams configured yet.</p>}
+              {streams.map((stream) => (
+                <article
+                  key={stream.id}
+                  className={`stream-item ${statusClass(stream)} ${selectedStreamId === stream.id ? "selected" : ""}`}
+                >
+                  <button
+                    type="button"
+                    className="stream-title"
+                    onClick={() => setSelectedStreamId(stream.id)}
+                  >
+                    <span>{stream.name}</span>
+                    <span className={`status ${statusClass(stream)}`}>
+                      {statusLabel(stream)}
+                    </span>
+                  </button>
+
+                  <div className="stream-meta">
+                    <span>Grid {stream.grid_size}</span>
+                    <span>Win {stream.win_radius}</span>
+                    <span>Thr {stream.threshold}</span>
+                    <span>Worker {stream.worker_status}</span>
+                  </div>
+                  {stream.last_error && <p className="stream-error">{stream.last_error}</p>}
+
+                  <div className="row actions">
+                    <button disabled={busy} className="btn tiny" onClick={() => handleEdit(stream)}>
+                      Edit
+                    </button>
+                    <button
+                      disabled={busy}
+                      className="btn tiny"
+                      onClick={() => handleToggle(stream)}
+                    >
+                      {stream.is_active ? "Deactivate" : "Activate"}
+                    </button>
+                    <button
+                      disabled={busy}
+                      className="btn tiny danger"
+                      onClick={() => handleDelete(stream)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="panel viewport-panel">
+            <h2>Live Preview</h2>
+            <p className="muted">
+              {selectedStream
+                ? `Selected: ${selectedStream.name}`
+                : "Select a stream to view its live frame feed."}
+            </p>
+            {selectedStream && (
+              <p className={`connection-badge ${statusClass(selectedStream)}`}>
+                Connection: {statusLabel(selectedStream)}
+                {selectedStream.last_error ? ` - ${selectedStream.last_error}` : ""}
+              </p>
+            )}
 
             <div className="row">
-              <button disabled={busy} type="submit" className="btn primary">
-                {editingId ? "Save Config" : "Create Stream"}
-              </button>
-              {editingId && (
-                <button disabled={busy} type="button" className="btn ghost" onClick={resetForm}>
-                  Cancel Edit
-                </button>
-              )}
-            </div>
-          </form>
-
-          {notice && <p className="notice">{notice}</p>}
-          {error && <p className="error">{error}</p>}
-
-          <h2>Stream Fleet</h2>
-          <div className="stream-list">
-            {streams.length === 0 && <p className="muted">No streams configured yet.</p>}
-            {streams.map((stream) => (
-              <article
-                key={stream.id}
-                className={`stream-item ${statusClass(stream)} ${selectedStreamId === stream.id ? "selected" : ""}`}
+              <button
+                type="button"
+                className="btn tiny"
+                disabled={!selectedStream || busy}
+                onClick={handleTuneSelected}
               >
-                <button className="stream-title" onClick={() => setSelectedStreamId(stream.id)}>
-                  <span>{stream.name}</span>
-                  <span className={`status ${statusClass(stream)}`}>
-                    {statusLabel(stream)}
-                  </span>
-                </button>
+                Tune Selected Stream
+              </button>
+            </div>
 
-                <div className="stream-meta">
-                  <span>Grid {stream.grid_size}</span>
-                  <span>Win {stream.win_radius}</span>
-                  <span>Thr {stream.threshold}</span>
-                  <span>Worker {stream.worker_status}</span>
-                </div>
-                {stream.last_error && <p className="stream-error">{stream.last_error}</p>}
+            <div className="canvas-shell">
+              <canvas ref={canvasRef} className="preview-canvas" />
+            </div>
 
-                <div className="row actions">
-                  <button disabled={busy} className="btn tiny" onClick={() => handleEdit(stream)}>
-                    Edit
-                  </button>
-                  <button
-                    disabled={busy}
-                    className="btn tiny"
-                    onClick={() => handleToggle(stream)}
-                  >
-                    {stream.is_active ? "Deactivate" : "Activate"}
-                  </button>
-                  <button
-                    disabled={busy}
-                    className="btn tiny danger"
-                    onClick={() => handleDelete(stream)}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="panel viewport-panel">
-          <h2>Live Preview</h2>
-          <p className="muted">
-            {selectedStream
-              ? `Selected: ${selectedStream.name}`
-              : "Select a stream to view its live frame feed."}
-          </p>
-          {selectedStream && (
-            <p className={`connection-badge ${statusClass(selectedStream)}`}>
-              Connection: {statusLabel(selectedStream)}
-              {selectedStream.last_error ? ` - ${selectedStream.last_error}` : ""}
+            <div className="stats-grid">
+              <div>
+                <span className="label">FPS</span>
+                <strong>{latestStats.fps}</strong>
+              </div>
+              <div>
+                <span className="label">AVG MAG</span>
+                <strong>{latestStats.avg}</strong>
+              </div>
+              <div>
+                <span className="label">MAX MAG</span>
+                <strong>{latestStats.max}</strong>
+              </div>
+              <div>
+                <span className="label">VECTORS</span>
+                <strong>{latestStats.vectors}</strong>
+              </div>
+            </div>
+          </section>
+        </main>
+      ) : (
+        <main className="app-grid dashboard-only">
+          <section className="panel dashboard-route-panel">
+            <div className="dashboard-toolbar">
+              <h2>Vector Flow Overview</h2>
+              <label className="dashboard-filter">
+                Stream
+                <select
+                  value={selectedStreamId || ""}
+                  onChange={(event) => setSelectedStreamId(event.target.value || null)}
+                >
+                  <option value="">All Streams</option>
+                  {streams.map((stream) => (
+                    <option key={stream.id} value={stream.id}>
+                      {stream.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {error && <p className="error">{error}</p>}
+            <p className="muted">
+              {selectedStream
+                ? `Showing dashboard for ${selectedStream.name}.`
+                : "Showing dashboard for all streams."}
             </p>
-          )}
-
-          <div className="row">
-            <button
-              type="button"
-              className="btn tiny"
-              disabled={!selectedStream || busy}
-              onClick={handleTuneSelected}
-            >
-              Tune Selected Stream
-            </button>
-          </div>
-
-          <div className="canvas-shell">
-            <canvas ref={canvasRef} className="preview-canvas" />
-          </div>
-
-          <div className="stats-grid">
-            <div>
-              <span className="label">FPS</span>
-              <strong>{latestStats.fps}</strong>
-            </div>
-            <div>
-              <span className="label">AVG MAG</span>
-              <strong>{latestStats.avg}</strong>
-            </div>
-            <div>
-              <span className="label">MAX MAG</span>
-              <strong>{latestStats.max}</strong>
-            </div>
-            <div>
-              <span className="label">VECTORS</span>
-              <strong>{latestStats.vectors}</strong>
-            </div>
-          </div>
-
-          <h2>Grafana</h2>
-          <iframe
-            title="Vector Flow Grafana"
-            src={grafanaUrl}
-            className="grafana-frame"
-            loading="lazy"
-          />
-        </section>
-      </main>
+            <iframe
+              title="Vector Flow Grafana"
+              src={grafanaUrl}
+              className="grafana-frame grafana-route-frame"
+              loading="lazy"
+            />
+          </section>
+        </main>
+      )}
     </div>
   );
 }

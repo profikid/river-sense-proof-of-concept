@@ -30,6 +30,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -65,6 +66,17 @@ textarea {
   font-size: 0.95rem;
 }
 
+.view-toggle {
+  margin-top: 0.8rem;
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.view-toggle .btn.active {
+  border-color: rgba(22, 242, 179, 0.8);
+}
+
 .header-meta {
   display: flex;
   gap: 0.5rem;
@@ -96,6 +108,10 @@ textarea {
   display: grid;
   grid-template-columns: minmax(320px, 430px) 1fr;
   gap: 1rem;
+}
+
+.app-grid.dashboard-only {
+  grid-template-columns: 1fr;
 }
 
 .panel {
@@ -163,6 +179,16 @@ label {
 }
 
 input {
+  width: 100%;
+  border: 1px solid rgba(145, 214, 219, 0.34);
+  background: rgba(5, 15, 23, 0.75);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 0.56rem 0.7rem;
+}
+
+select {
+  width: 100%;
   border: 1px solid rgba(145, 214, 219, 0.34);
   background: rgba(5, 15, 23, 0.75);
   color: var(--text);
@@ -454,6 +480,31 @@ input:focus {
   background: rgba(8, 19, 26, 0.65);
 }
 
+.dashboard-route-panel {
+  min-height: 78vh;
+}
+
+.dashboard-toolbar {
+  display: flex;
+  gap: 0.9rem;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.dashboard-toolbar h2 {
+  margin: 0;
+}
+
+.dashboard-filter {
+  min-width: 220px;
+  max-width: 360px;
+}
+
+.grafana-route-frame {
+  min-height: calc(78vh - 110px);
+}
+
 @media (max-width: 1100px) {
   .app-grid {
     grid-template-columns: 1fr;
@@ -466,6 +517,10 @@ input:focus {
 
   .header-meta {
     justify-content: flex-start;
+  }
+
+  .dashboard-filter {
+    max-width: 100%;
   }
 }
 

@@ -214,6 +214,12 @@ Grafana is auto-provisioned with:
 The frontend embeds this dashboard and passes the selected stream via `var-stream_name`.
 Dashboard panels include optical-flow metrics, worker memory/GPU observability, a running-stream count stat, and a fleet state pie chart (`running`, `deactivated`, `error`).
 
+Frontend routes:
+
+- `/` Stream configuration + live preview.
+- `/dashboard` Embedded Grafana overview.
+- `?stream=<stream_id>` URL state for selected stream (used by both routes).
+
 ## Stream Validation and Errors
 
 - Active streams are marked with connection state (`connected`, `starting`, `stream error`, `worker down`).

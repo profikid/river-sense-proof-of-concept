@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from contextlib import suppress
+from datetime import datetime, timezone
 from typing import Dict, Optional
 
 from fastapi import WebSocket
@@ -15,6 +16,7 @@ class FrameBroker:
         self.redis_url = redis_url
         self.channel = channel
         self.connections: Dict[WebSocket, Optional[str]] = {}
+        self.stream_states: Dict[str, dict] = {}
         self._task: Optional[asyncio.Task] = None
         self._running = False
 
@@ -80,6 +82,7 @@ class FrameBroker:
         try:
             decoded = json.loads(payload)
             stream_id = decoded.get("stream_id")
+            self._update_stream_state(decoded)
         except json.JSONDecodeError:
             pass
 
@@ -96,3 +99,45 @@ class FrameBroker:
 
         for websocket in stale:
             self.disconnect(websocket)
+
+    def get_stream_state(self, stream_id: str) -> Optional[dict]:
+        return self.stream_states.get(stream_id)
+
+    @staticmethod
+    def _parse_timestamp(timestamp_ms: Optional[int]) -> Optional[datetime]:
+        if not timestamp_ms:
+            return None
+        try:
+            return datetime.fromtimestamp(float(timestamp_ms) / 1000.0, tz=timezone.utc).replace(tzinfo=None)
+        except Exception:
+            return None
+
+    def _update_stream_state(self, message: dict) -> None:
+        stream_id = message.get("stream_id")
+        if not stream_id:
+            return
+
+        event_type = message.get("type", "frame")
+        status = message.get("status")
+        error = message.get("error")
+        event_time = self._parse_timestamp(message.get("timestamp"))
+
+        current = self.stream_states.get(stream_id, {})
+
+        if event_type == "stream_status":
+            if status:
+                current["connection_status"] = status
+            if error:
+                current["last_error"] = str(error)
+            elif status in {"connected", "ok"}:
+                current["last_error"] = None
+        elif event_type == "frame" or "frame_b64" in message:
+            current["connection_status"] = "connected"
+            current["last_error"] = None
+
+        if event_time:
+            current["last_event_at"] = event_time
+        else:
+            current["last_event_at"] = datetime.utcnow()
+
+        self.stream_states[stream_id] = current

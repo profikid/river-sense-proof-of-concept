@@ -6,14 +6,51 @@ const GRAFANA_DASHBOARD_URL =
   import.meta.env.VITE_GRAFANA_DASHBOARD_URL ||
   "http://localhost:3000/d/vector-flow/vector-flow-overview";
 
+const DEFAULT_STREAM_CONFIG = {
+  grid_size: 16,
+  win_radius: 8,
+  threshold: 1.2,
+  arrow_scale: 4,
+  arrow_opacity: 90,
+  gradient_intensity: 1.0,
+  show_feed: true,
+  show_arrows: true,
+  show_magnitude: false,
+  show_trails: false,
+};
+
 const DEFAULT_FORM = {
   name: "",
   rtsp_url:
     "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-  grid_size: 16,
-  threshold: 1.2,
+  ...DEFAULT_STREAM_CONFIG,
   is_active: false,
 };
+
+const NUMERIC_FIELDS = {
+  grid_size: { min: 4, max: 128, step: 1 },
+  win_radius: { min: 2, max: 32, step: 1 },
+  threshold: { min: 0, max: 100, step: 0.1 },
+  arrow_scale: { min: 0.1, max: 25, step: 0.1 },
+  arrow_opacity: { min: 0, max: 100, step: 1 },
+  gradient_intensity: { min: 0.1, max: 5, step: 0.1 },
+};
+
+const SLIDER_FIELDS = [
+  { key: "grid_size", label: "Grid Size", unit: "px" },
+  { key: "win_radius", label: "Window Radius", unit: "px" },
+  { key: "threshold", label: "Sensitivity Threshold", unit: "" },
+  { key: "arrow_scale", label: "Arrow Scale", unit: "x" },
+  { key: "arrow_opacity", label: "Arrow Opacity", unit: "%" },
+  { key: "gradient_intensity", label: "Gradient Intensity", unit: "x" },
+];
+
+const TOGGLE_FIELDS = [
+  { key: "show_feed", label: "Raw Feed" },
+  { key: "show_arrows", label: "Flow Arrows" },
+  { key: "show_magnitude", label: "Magnitude Map" },
+  { key: "show_trails", label: "Motion Trails" },
+];
 
 function normalizeHttpBase(value) {
   return value.replace(/\/+$/, "");
@@ -24,6 +61,62 @@ function toWsBase(httpBase) {
     return httpBase.replace("https://", "wss://");
   }
   return httpBase.replace("http://", "ws://");
+}
+
+function streamToForm(stream) {
+  return {
+    name: stream.name ?? "",
+    rtsp_url: stream.rtsp_url ?? "",
+    is_active: !!stream.is_active,
+    grid_size: stream.grid_size ?? DEFAULT_STREAM_CONFIG.grid_size,
+    win_radius: stream.win_radius ?? DEFAULT_STREAM_CONFIG.win_radius,
+    threshold: stream.threshold ?? DEFAULT_STREAM_CONFIG.threshold,
+    arrow_scale: stream.arrow_scale ?? DEFAULT_STREAM_CONFIG.arrow_scale,
+    arrow_opacity: stream.arrow_opacity ?? DEFAULT_STREAM_CONFIG.arrow_opacity,
+    gradient_intensity: stream.gradient_intensity ?? DEFAULT_STREAM_CONFIG.gradient_intensity,
+    show_feed: stream.show_feed ?? DEFAULT_STREAM_CONFIG.show_feed,
+    show_arrows: stream.show_arrows ?? DEFAULT_STREAM_CONFIG.show_arrows,
+    show_magnitude: stream.show_magnitude ?? DEFAULT_STREAM_CONFIG.show_magnitude,
+    show_trails: stream.show_trails ?? DEFAULT_STREAM_CONFIG.show_trails,
+  };
+}
+
+function buildPayload(form) {
+  return {
+    name: form.name.trim(),
+    rtsp_url: form.rtsp_url.trim(),
+    is_active: !!form.is_active,
+    grid_size: Number(form.grid_size),
+    win_radius: Number(form.win_radius),
+    threshold: Number(form.threshold),
+    arrow_scale: Number(form.arrow_scale),
+    arrow_opacity: Number(form.arrow_opacity),
+    gradient_intensity: Number(form.gradient_intensity),
+    show_feed: !!form.show_feed,
+    show_arrows: !!form.show_arrows,
+    show_magnitude: !!form.show_magnitude,
+    show_trails: !!form.show_trails,
+  };
+}
+
+function statusClass(stream) {
+  const status = stream.connection_status || "unknown";
+  if (status === "connected") return "healthy";
+  if (status === "inactive") return "inactive";
+  if (status === "starting") return "starting";
+  if (status === "worker_down") return "error";
+  if (status === "error") return "error";
+  return "unknown";
+}
+
+function statusLabel(stream) {
+  const status = stream.connection_status || "unknown";
+  if (status === "connected") return "connected";
+  if (status === "inactive") return "inactive";
+  if (status === "starting") return "starting";
+  if (status === "worker_down") return "worker down";
+  if (status === "error") return "stream error";
+  return status;
 }
 
 async function apiRequest(path, options = {}) {
@@ -43,7 +136,7 @@ async function apiRequest(path, options = {}) {
         detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
       }
     } catch {
-      // Preserve default detail when body cannot be parsed.
+      // Keep default detail when body cannot be parsed.
     }
     throw new Error(detail);
   }
@@ -165,7 +258,9 @@ export default function App() {
       socket.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data);
-          setFramePayload(payload);
+          if (payload?.type === "frame" || payload?.frame_b64) {
+            setFramePayload(payload);
+          }
         } catch {
           // Ignore malformed payloads.
         }
@@ -217,36 +312,6 @@ export default function App() {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, displayWidth, displayHeight);
       ctx.drawImage(img, 0, 0, displayWidth, displayHeight);
-
-      const srcWidth = framePayload.width || img.width;
-      const srcHeight = framePayload.height || img.height;
-      const scaleX = displayWidth / srcWidth;
-      const scaleY = displayHeight / srcHeight;
-
-      ctx.strokeStyle = "rgba(13, 245, 180, 0.9)";
-      ctx.fillStyle = "rgba(13, 245, 180, 0.9)";
-      ctx.lineWidth = 1.2;
-
-      for (const vector of framePayload.vectors || []) {
-        const x = vector.x * scaleX;
-        const y = vector.y * scaleY;
-        const tx = (vector.x + vector.u * 4) * scaleX;
-        const ty = (vector.y + vector.v * 4) * scaleY;
-
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(tx, ty);
-        ctx.stroke();
-
-        const angle = Math.atan2(ty - y, tx - x);
-        const head = 5;
-        ctx.beginPath();
-        ctx.moveTo(tx, ty);
-        ctx.lineTo(tx - head * Math.cos(angle - 0.45), ty - head * Math.sin(angle - 0.45));
-        ctx.lineTo(tx - head * Math.cos(angle + 0.45), ty - head * Math.sin(angle + 0.45));
-        ctx.closePath();
-        ctx.fill();
-      }
     };
 
     img.src = `data:image/jpeg;base64,${framePayload.frame_b64}`;
@@ -259,18 +324,11 @@ export default function App() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-
     setBusy(true);
     setError("");
     setNotice("");
 
-    const payload = {
-      ...form,
-      name: form.name.trim(),
-      rtsp_url: form.rtsp_url.trim(),
-      grid_size: Number(form.grid_size),
-      threshold: Number(form.threshold),
-    };
+    const payload = buildPayload(form);
 
     try {
       if (editingId) {
@@ -278,7 +336,7 @@ export default function App() {
           method: "PUT",
           body: JSON.stringify(payload),
         });
-        setNotice("Stream updated.");
+        setNotice("Stream configuration saved.");
       } else {
         const created = await apiRequest("/streams", {
           method: "POST",
@@ -299,13 +357,18 @@ export default function App() {
 
   const handleEdit = (stream) => {
     setEditingId(stream.id);
-    setForm({
-      name: stream.name,
-      rtsp_url: stream.rtsp_url,
-      grid_size: stream.grid_size,
-      threshold: stream.threshold,
-      is_active: stream.is_active,
-    });
+    setForm(streamToForm(stream));
+  };
+
+  const handleTuneSelected = () => {
+    if (!selectedStream) {
+      return;
+    }
+    handleEdit(selectedStream);
+  };
+
+  const handleSliderChange = (key, value) => {
+    setForm((current) => ({ ...current, [key]: Number(value) }));
   };
 
   const handleToggle = async (stream) => {
@@ -358,7 +421,7 @@ export default function App() {
       <header className="app-header">
         <div>
           <h1>Vector Flow Fleet Manager</h1>
-          <p>Multi-stream optical flow orchestration with live overlays and metrics.</p>
+          <p>Add stream URL first, then tune live settings and save to apply worker processing.</p>
         </div>
         <div className="header-meta">
           <span className={`pill ${wsStatus}`}>WebSocket: {wsStatus}</span>
@@ -368,7 +431,7 @@ export default function App() {
 
       <main className="app-grid">
         <section className="panel controls-panel">
-          <h2>{editingId ? "Edit Stream" : "Add Stream"}</h2>
+          <h2>{editingId ? "Tune Stream Config" : "Add Stream"}</h2>
 
           <form onSubmit={handleSubmit} className="stream-form">
             <label>
@@ -390,32 +453,50 @@ export default function App() {
               />
             </label>
 
-            <div className="row two-col">
-              <label>
-                Grid Size
-                <input
-                  type="number"
-                  min="4"
-                  max="128"
-                  value={form.grid_size}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, grid_size: Number(event.target.value) }))
-                  }
-                />
-              </label>
+            <div className="config-section">
+              <h3>Layers</h3>
+              <div className="toggle-grid">
+                {TOGGLE_FIELDS.map((field) => (
+                  <label className="checkbox-row" key={field.key}>
+                    <input
+                      type="checkbox"
+                      checked={form[field.key]}
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, [field.key]: event.target.checked }))
+                      }
+                    />
+                    {field.label}
+                  </label>
+                ))}
+              </div>
+            </div>
 
-              <label>
-                Threshold
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  value={form.threshold}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, threshold: Number(event.target.value) }))
-                  }
-                />
-              </label>
+            <div className="config-section">
+              <h3>Processing</h3>
+              <div className="slider-grid">
+                {SLIDER_FIELDS.map((field) => {
+                  const bounds = NUMERIC_FIELDS[field.key];
+                  return (
+                    <label key={field.key}>
+                      <span className="slider-label">
+                        {field.label}
+                        <strong>
+                          {form[field.key]}
+                          {field.unit}
+                        </strong>
+                      </span>
+                      <input
+                        type="range"
+                        min={bounds.min}
+                        max={bounds.max}
+                        step={bounds.step}
+                        value={form[field.key]}
+                        onChange={(event) => handleSliderChange(field.key, event.target.value)}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
             </div>
 
             <label className="checkbox-row">
@@ -431,7 +512,7 @@ export default function App() {
 
             <div className="row">
               <button disabled={busy} type="submit" className="btn primary">
-                {editingId ? "Save Changes" : "Create Stream"}
+                {editingId ? "Save Config" : "Create Stream"}
               </button>
               {editingId && (
                 <button disabled={busy} type="button" className="btn ghost" onClick={resetForm}>
@@ -450,19 +531,22 @@ export default function App() {
             {streams.map((stream) => (
               <article
                 key={stream.id}
-                className={`stream-item ${selectedStreamId === stream.id ? "selected" : ""}`}
+                className={`stream-item ${statusClass(stream)} ${selectedStreamId === stream.id ? "selected" : ""}`}
               >
                 <button className="stream-title" onClick={() => setSelectedStreamId(stream.id)}>
                   <span>{stream.name}</span>
-                  <span className={`status ${stream.is_active ? "active" : "inactive"}`}>
-                    {stream.worker_status}
+                  <span className={`status ${statusClass(stream)}`}>
+                    {statusLabel(stream)}
                   </span>
                 </button>
 
                 <div className="stream-meta">
                   <span>Grid {stream.grid_size}</span>
-                  <span>Threshold {stream.threshold}</span>
+                  <span>Win {stream.win_radius}</span>
+                  <span>Thr {stream.threshold}</span>
+                  <span>Worker {stream.worker_status}</span>
                 </div>
+                {stream.last_error && <p className="stream-error">{stream.last_error}</p>}
 
                 <div className="row actions">
                   <button disabled={busy} className="btn tiny" onClick={() => handleEdit(stream)}>
@@ -495,6 +579,23 @@ export default function App() {
               ? `Selected: ${selectedStream.name}`
               : "Select a stream to view its live frame feed."}
           </p>
+          {selectedStream && (
+            <p className={`connection-badge ${statusClass(selectedStream)}`}>
+              Connection: {statusLabel(selectedStream)}
+              {selectedStream.last_error ? ` - ${selectedStream.last_error}` : ""}
+            </p>
+          )}
+
+          <div className="row">
+            <button
+              type="button"
+              className="btn tiny"
+              disabled={!selectedStream || busy}
+              onClick={handleTuneSelected}
+            >
+              Tune Selected Stream
+            </button>
+          </div>
 
           <div className="canvas-shell">
             <canvas ref={canvasRef} className="preview-canvas" />

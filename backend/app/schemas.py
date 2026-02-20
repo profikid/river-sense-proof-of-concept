@@ -9,7 +9,15 @@ class StreamBase(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     rtsp_url: str = Field(min_length=3)
     grid_size: int = Field(default=16, ge=4, le=128)
+    win_radius: int = Field(default=8, ge=2, le=32)
     threshold: float = Field(default=1.2, ge=0.0, le=100.0)
+    arrow_scale: float = Field(default=4.0, ge=0.1, le=25.0)
+    arrow_opacity: float = Field(default=90.0, ge=0.0, le=100.0)
+    gradient_intensity: float = Field(default=1.0, ge=0.1, le=5.0)
+    show_feed: bool = True
+    show_arrows: bool = True
+    show_magnitude: bool = False
+    show_trails: bool = False
 
 
 class StreamCreate(StreamBase):
@@ -20,7 +28,15 @@ class StreamUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     rtsp_url: Optional[str] = Field(default=None, min_length=3)
     grid_size: Optional[int] = Field(default=None, ge=4, le=128)
+    win_radius: Optional[int] = Field(default=None, ge=2, le=32)
     threshold: Optional[float] = Field(default=None, ge=0.0, le=100.0)
+    arrow_scale: Optional[float] = Field(default=None, ge=0.1, le=25.0)
+    arrow_opacity: Optional[float] = Field(default=None, ge=0.0, le=100.0)
+    gradient_intensity: Optional[float] = Field(default=None, ge=0.1, le=5.0)
+    show_feed: Optional[bool] = None
+    show_arrows: Optional[bool] = None
+    show_magnitude: Optional[bool] = None
+    show_trails: Optional[bool] = None
     is_active: Optional[bool] = None
 
 
@@ -31,6 +47,9 @@ class StreamRead(StreamBase):
     worker_container_name: Optional[str] = None
     worker_started_at: Optional[datetime] = None
     worker_status: str = "stopped"
+    connection_status: str = "unknown"
+    last_error: Optional[str] = None
+    last_event_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 

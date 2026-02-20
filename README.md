@@ -7,6 +7,7 @@ End-to-end implementation of a multi-stream optical-flow platform:
 - **Prometheus + Grafana** collect and visualize time-series metrics.
 - **React frontend** manages the camera fleet, previews live frames on canvas, and embeds Grafana dashboards.
 - **Redis Pub/Sub** distributes live frame payloads from workers to the dashboard in near real-time.
+- **Stream health validation** surfaces connection failures in the UI with per-stream error messages.
 
 ## Architecture
 
@@ -104,22 +105,42 @@ curl -X POST http://localhost:8000/streams \
     "name": "Demo Feed",
     "rtsp_url": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
     "grid_size": 16,
+    "win_radius": 8,
     "threshold": 1.2,
+    "arrow_scale": 4.0,
+    "arrow_opacity": 90.0,
+    "gradient_intensity": 1.0,
+    "show_feed": true,
+    "show_arrows": true,
+    "show_magnitude": false,
+    "show_trails": false,
     "is_active": true
   }'
 ```
 
 When activated, the API spins up a dedicated worker container and updates Prometheus file-based service discovery.
 
+## 4. Tune from live preview
+
+1. Create stream with URL.
+2. Select stream in the fleet list and view live preview.
+3. Click **Tune Selected Stream**.
+4. Adjust controls (`show_feed`, `show_arrows`, `show_magnitude`, `show_trails`, `grid_size`, `win_radius`, `threshold`, `arrow_scale`, `arrow_opacity`, `gradient_intensity`).
+5. Save config.
+
+If the stream is active, saving config restarts its worker with the new settings so processing + Grafana metrics use the updated values.
+
 ## Runtime Behavior
 
 - **Stream create/update/delete** stored in PostgreSQL.
 - **Activate** starts a dedicated worker container (one per stream).
 - **Deactivate** stops and removes that worker container.
+- **Save config on an active stream** restarts its worker with new tuning values.
 - Each worker:
   - Captures frames from the configured URL.
-  - Computes Lucas-Kanade optical flow vectors.
-  - Publishes live annotated frame payloads to Redis.
+  - Computes Lucas-Kanade optical flow vectors using stream config (`grid_size`, `win_radius`, `threshold`).
+  - Renders live frame overlays using stream display config (`show_*`, `arrow_scale`, `arrow_opacity`, `gradient_intensity`).
+  - Publishes live frame + vectors payloads and explicit stream connection status/error events to Redis.
   - Exposes `/metrics` for Prometheus scraping.
 - API bridges Redis frames to the frontend over WebSocket (`/ws/frames`).
 
@@ -148,7 +169,12 @@ OpenAPI docs:
 - `name` stream display name
 - `rtsp_url` source URL
 - `grid_size` sampling grid size
+- `win_radius` LK window radius
 - `threshold` flow magnitude threshold
+- `arrow_scale` rendered arrow length multiplier
+- `arrow_opacity` rendered arrow alpha (0-100)
+- `gradient_intensity` magnitude heat intensity
+- `show_feed`, `show_arrows`, `show_magnitude`, `show_trails` live overlay toggles
 - `is_active` desired active state
 - `worker_container_name` active worker container name
 - `worker_started_at` worker start timestamp
@@ -163,6 +189,13 @@ Workers expose these gauges/counters:
 - `vector_flow_vector_count`
 - `vector_flow_fps`
 - `vector_flow_frames_processed_total`
+- `vector_flow_stream_connected`
+- `vector_flow_worker_memory_rss_bytes`
+- `vector_flow_worker_memory_percent`
+- `vector_flow_gpu_available`
+- `vector_flow_gpu_utilization_percent`
+- `vector_flow_gpu_memory_used_bytes`
+- `vector_flow_gpu_memory_total_bytes`
 
 API exposes:
 
@@ -177,6 +210,13 @@ Grafana is auto-provisioned with:
 - Dashboard: **Vector Flow Overview** (`uid: vector-flow`)
 
 The frontend embeds this dashboard and passes the selected stream via `var-stream_id`.
+Dashboard panels include optical-flow metrics plus worker memory and GPU observability.
+
+## Stream Validation and Errors
+
+- Active streams are marked with connection state (`connected`, `starting`, `stream error`, `worker down`).
+- When source connection fails, the worker emits a detailed error and the stream card is highlighted in red.
+- Latest stream error is shown both in fleet cards and in the live preview panel.
 
 ## Frontend Local Development (without container)
 

@@ -194,6 +194,8 @@ Workers expose these gauges/counters:
 - `vector_flow_fps`
 - `vector_flow_frames_processed_total`
 - `vector_flow_stream_connected`
+- `vector_flow_direction_degrees`
+- `vector_flow_direction_coherence`
 - `vector_flow_worker_memory_rss_bytes`
 - `vector_flow_worker_memory_percent`
 - `vector_flow_gpu_available`
@@ -217,7 +219,7 @@ Grafana is auto-provisioned with:
 - Alert rule group: **vector-flow-alerts** (provisioned from `grafana/provisioning/alerting/alert_rules.yml`)
 
 The frontend embeds this dashboard and passes the selected stream via `var-stream_name`.
-Dashboard panels include optical-flow metrics, worker memory/GPU observability, a running-stream count stat, and a fleet state pie chart (`running`, `deactivated`, `error`).
+Dashboard panels include optical-flow metrics, per-stream vector direction/coherence, worker memory/GPU observability, a running-stream count stat, and a fleet state pie chart (`running`, `deactivated`, `error`).
 
 Frontend routes:
 

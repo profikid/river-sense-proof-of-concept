@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+import math
 import os
 import time
 from dataclasses import dataclass
@@ -54,6 +55,16 @@ GPU_MEMORY_USED = Gauge(
 GPU_MEMORY_TOTAL = Gauge(
     "vector_flow_gpu_memory_total_bytes",
     "Total GPU memory in bytes for this worker",
+    ["stream_id", "stream_name"],
+)
+VECTOR_DIRECTION_DEGREES = Gauge(
+    "vector_flow_direction_degrees",
+    "Dominant vector direction in degrees (0=east/right, 90=north/up)",
+    ["stream_id", "stream_name"],
+)
+VECTOR_DIRECTION_COHERENCE = Gauge(
+    "vector_flow_direction_coherence",
+    "Direction coherence from 0-1 where 1 means vectors align to one direction",
     ["stream_id", "stream_name"],
 )
 
@@ -150,8 +161,13 @@ class FlowProcessor:
         self.metric_gpu_util = GPU_UTILIZATION.labels(**labels)
         self.metric_gpu_mem_used = GPU_MEMORY_USED.labels(**labels)
         self.metric_gpu_mem_total = GPU_MEMORY_TOTAL.labels(**labels)
+        self.metric_direction_deg = VECTOR_DIRECTION_DEGREES.labels(**labels)
+        self.metric_direction_coherence = VECTOR_DIRECTION_COHERENCE.labels(**labels)
+        self.last_direction_deg = 0.0
 
         self._init_gpu_metrics()
+        self.metric_direction_deg.set(0.0)
+        self.metric_direction_coherence.set(0.0)
 
         logger.info(
             (
@@ -487,6 +503,8 @@ class FlowProcessor:
         fps: float,
         avg_mag: float,
         max_mag: float,
+        direction_deg: float,
+        direction_coherence: float,
     ) -> None:
         ok, encoded = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 72])
         if not ok:
@@ -503,6 +521,8 @@ class FlowProcessor:
             "fps": round(fps, 2),
             "avg_magnitude": round(avg_mag, 4),
             "max_magnitude": round(max_mag, 4),
+            "direction_degrees": round(direction_deg, 2),
+            "direction_coherence": round(direction_coherence, 4),
             "vector_count": len(vectors),
             "vectors": [
                 {
@@ -531,7 +551,30 @@ class FlowProcessor:
 
         self._publish_to_redis(payload, "publish")
 
-    def _update_metrics(self, vectors: List[FlowVector], fps: float) -> tuple[float, float]:
+    def _compute_direction_metrics(self, vectors: List[FlowVector]) -> tuple[float, float]:
+        if not vectors:
+            return self.last_direction_deg, 0.0
+
+        sum_u = 0.0
+        sum_v = 0.0
+        total_weight = 0.0
+        for vector in vectors:
+            weight = max(vector.mag, 1e-6)
+            sum_u += vector.u * weight
+            sum_v += vector.v * weight
+            total_weight += weight
+
+        resultant = math.hypot(sum_u, sum_v)
+        if resultant <= 1e-9 or total_weight <= 1e-9:
+            return self.last_direction_deg, 0.0
+
+        # Convert image-space vectors to screen-space compass-like angle.
+        angle_deg = (math.degrees(math.atan2(-sum_v, sum_u)) + 360.0) % 360.0
+        coherence = clamp(resultant / total_weight, 0.0, 1.0)
+        self.last_direction_deg = angle_deg
+        return angle_deg, coherence
+
+    def _update_metrics(self, vectors: List[FlowVector], fps: float) -> tuple[float, float, float, float]:
         if vectors:
             mags = np.array([v.mag for v in vectors], dtype=np.float32)
             avg_mag = float(np.mean(mags))
@@ -542,12 +585,16 @@ class FlowProcessor:
             max_mag = 0.0
             count = 0
 
+        direction_deg, direction_coherence = self._compute_direction_metrics(vectors)
+
         self.metric_avg.set(avg_mag)
         self.metric_max.set(max_mag)
         self.metric_vectors.set(count)
         self.metric_fps.set(fps)
+        self.metric_direction_deg.set(direction_deg)
+        self.metric_direction_coherence.set(direction_coherence)
         self.metric_frames.inc()
-        return avg_mag, max_mag
+        return avg_mag, max_mag, direction_deg, direction_coherence
 
     def _compute_fps(self) -> float:
         now = time.perf_counter()
@@ -593,13 +640,21 @@ class FlowProcessor:
 
                 fps = self._compute_fps()
                 vectors = self._compute_vectors(self.prev_gray, gray)
-                avg_mag, max_mag = self._update_metrics(vectors, fps)
+                avg_mag, max_mag, direction_deg, direction_coherence = self._update_metrics(vectors, fps)
                 self._collect_runtime_metrics()
                 self.metric_connected.set(1)
                 self._publish_status("connected")
 
                 overlay = self._build_overlay(frame, vectors)
-                self._publish_frame(overlay, vectors, fps, avg_mag, max_mag)
+                self._publish_frame(
+                    overlay,
+                    vectors,
+                    fps,
+                    avg_mag,
+                    max_mag,
+                    direction_deg,
+                    direction_coherence,
+                )
 
                 self.prev_gray = gray
 

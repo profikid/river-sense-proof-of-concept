@@ -83,6 +83,14 @@ function buildLocation(view, selectedStreamId) {
   return `${pathname}${query ? `?${query}` : ""}`;
 }
 
+function firstConnectedStreamId(streams) {
+  const connected = streams.find((stream) => {
+    const status = String(stream.connection_status || "").toLowerCase();
+    return status === "connected" || status === "ok";
+  });
+  return connected?.id || null;
+}
+
 function streamToForm(stream) {
   return {
     name: stream.name ?? "",
@@ -233,11 +241,24 @@ export default function App() {
     setStreams(data);
 
     setSelectedStreamId((currentSelectedId) => {
+      const locationView = parseLocationState().view;
       if (!currentSelectedId || data.length === 0) {
+        if (data.length === 0) {
+          return null;
+        }
+        if (locationView === "config") {
+          return firstConnectedStreamId(data);
+        }
         return null;
       }
       const stillExists = data.some((stream) => stream.id === currentSelectedId);
-      return stillExists ? currentSelectedId : null;
+      if (stillExists) {
+        return currentSelectedId;
+      }
+      if (locationView === "config") {
+        return firstConnectedStreamId(data);
+      }
+      return null;
     });
   };
 

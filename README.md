@@ -212,6 +212,7 @@ Workers expose these gauges/counters:
 - `vector_flow_direction_degrees`
 - `vector_flow_direction_coherence`
 - `vector_flow_stream_location`
+- `vector_flow_magnitude_geo`
 - `vector_flow_vector_count_geo`
 - `vector_flow_worker_memory_rss_bytes`
 - `vector_flow_worker_memory_percent`
@@ -236,7 +237,7 @@ Grafana is auto-provisioned with:
 - Alert rule group: **vector-flow-alerts** (provisioned from `grafana/provisioning/alerting/alert_rules.yml`)
 
 The frontend embeds this dashboard and passes the selected stream via `var-stream_name`.
-Dashboard panels include optical-flow metrics, per-stream vector direction/coherence, worker memory/GPU observability, a running-stream count stat, a fleet state pie chart (`running`, `deactivated`, `error`), and a Geomap panel with stream points + vector-count heatmap layers.
+Dashboard panels include optical-flow metrics, per-stream vector direction/coherence, worker memory/GPU observability, a running-stream count stat, a fleet state pie chart (`running`, `deactivated`, `error`), and a Geomap panel with stream points + current-magnitude heatmap layers.
 
 Frontend routes:
 

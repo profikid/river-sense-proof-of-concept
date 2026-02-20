@@ -1313,7 +1313,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "continuous-YlOrRd"
+            "mode": "continuous-YlRd"
           },
           "mappings": [],
           "thresholds": {
@@ -1421,6 +1421,7 @@
               "mode": "coords"
             },
             "name": "Vector Heatmap",
+            "name": "Magnitude Heatmap",
             "tooltip": true,
             "type": "heatmap"
           }
@@ -1451,7 +1452,7 @@
         },
         {
           "editorMode": "code",
-          "expr": "vector_flow_vector_count_geo{stream_name=~\"$stream_name\"}",
+          "expr": "vector_flow_magnitude_geo{stream_name=~\"$stream_name\"}",
           "format": "table",
           "instant": true,
           "legendFormat": "{{stream_name}}",

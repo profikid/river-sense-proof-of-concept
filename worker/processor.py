@@ -77,6 +77,11 @@ VECTOR_COUNT_GEO = Gauge(
     "Vector count at stream geolocation for geomap heat layers",
     ["stream_id", "stream_name", "latitude", "longitude"],
 )
+MAGNITUDE_GEO = Gauge(
+    "vector_flow_magnitude_geo",
+    "Current average magnitude at stream geolocation for geomap heat layers",
+    ["stream_id", "stream_name", "latitude", "longitude"],
+)
 
 
 def env_bool(name: str, default: bool) -> bool:
@@ -207,6 +212,7 @@ class FlowProcessor:
         self.metric_direction_coherence = VECTOR_DIRECTION_COHERENCE.labels(**labels)
         self.metric_stream_location = None
         self.metric_vectors_geo = None
+        self.metric_magnitude_geo = None
         self.last_direction_deg = 0.0
 
         if self.latitude is not None and self.longitude is not None:
@@ -218,8 +224,10 @@ class FlowProcessor:
             }
             self.metric_stream_location = STREAM_LOCATION.labels(**geo_labels)
             self.metric_vectors_geo = VECTOR_COUNT_GEO.labels(**geo_labels)
+            self.metric_magnitude_geo = MAGNITUDE_GEO.labels(**geo_labels)
             self.metric_stream_location.set(1.0)
             self.metric_vectors_geo.set(0.0)
+            self.metric_magnitude_geo.set(0.0)
         else:
             logger.info(
                 "No valid coordinates configured for %s. Geomap metrics disabled for this stream.",
@@ -669,6 +677,8 @@ class FlowProcessor:
         self.metric_vectors.set(count)
         if self.metric_vectors_geo is not None:
             self.metric_vectors_geo.set(float(count))
+        if self.metric_magnitude_geo is not None:
+            self.metric_magnitude_geo.set(float(avg_mag))
         self.metric_fps.set(fps)
         self.metric_direction_deg.set(direction_deg)
         self.metric_direction_coherence.set(direction_coherence)
@@ -702,6 +712,8 @@ class FlowProcessor:
                         self.metric_connected.set(0)
                         if self.metric_vectors_geo is not None:
                             self.metric_vectors_geo.set(0.0)
+                        if self.metric_magnitude_geo is not None:
+                            self.metric_magnitude_geo.set(0.0)
                         self._publish_status(
                             "error",
                             error="Stream read failed. Reconnecting to source.",

@@ -223,6 +223,7 @@ Frontend routes:
 - `/` Stream configuration + live preview.
 - `/dashboard` Embedded Grafana overview.
 - `?stream=<stream_id>` URL state for selected stream (used by both routes).
+- `?range=<5m|15m|30m|1h|3h|6h|12h|24h|7d>` dashboard time window for embedded Grafana.
 
 ### Grafana Alerts
 

@@ -52,6 +52,28 @@ const TOGGLE_FIELDS = [
   { key: "show_trails", label: "Motion Trails" },
 ];
 
+const DEFAULT_DASHBOARD_RANGE = "15m";
+const DASHBOARD_TIME_OPTIONS = [
+  { value: "5m", label: "Last 5 minutes" },
+  { value: "15m", label: "Last 15 minutes" },
+  { value: "30m", label: "Last 30 minutes" },
+  { value: "1h", label: "Last 1 hour" },
+  { value: "3h", label: "Last 3 hours" },
+  { value: "6h", label: "Last 6 hours" },
+  { value: "12h", label: "Last 12 hours" },
+  { value: "24h", label: "Last 24 hours" },
+  { value: "7d", label: "Last 7 days" },
+];
+
+function normalizeDashboardRange(value) {
+  const candidate = String(value || "").trim();
+  if (!candidate) {
+    return DEFAULT_DASHBOARD_RANGE;
+  }
+  const isValid = DASHBOARD_TIME_OPTIONS.some((option) => option.value === candidate);
+  return isValid ? candidate : DEFAULT_DASHBOARD_RANGE;
+}
+
 function normalizeHttpBase(value) {
   return value.replace(/\/+$/, "");
 }
@@ -67,17 +89,23 @@ function parseLocationState() {
   const url = new URL(window.location.href);
   const view = url.pathname.startsWith("/dashboard") ? "dashboard" : "config";
   const selected = url.searchParams.get("stream");
+  const dashboardRange = normalizeDashboardRange(url.searchParams.get("range"));
   return {
     view,
     selectedStreamId: selected && selected.trim() ? selected : null,
+    dashboardRange,
   };
 }
 
-function buildLocation(view, selectedStreamId) {
+function buildLocation(view, selectedStreamId, dashboardRange) {
   const pathname = view === "dashboard" ? "/dashboard" : "/";
   const params = new URLSearchParams();
   if (selectedStreamId) {
     params.set("stream", selectedStreamId);
+  }
+  const normalizedRange = normalizeDashboardRange(dashboardRange);
+  if (normalizedRange !== DEFAULT_DASHBOARD_RANGE) {
+    params.set("range", normalizedRange);
   }
   const query = params.toString();
   return `${pathname}${query ? `?${query}` : ""}`;
@@ -185,6 +213,7 @@ export default function App() {
   const [streams, setStreams] = useState([]);
   const [selectedStreamId, setSelectedStreamId] = useState(initialLocation.selectedStreamId);
   const [currentView, setCurrentView] = useState(initialLocation.view);
+  const [dashboardRange, setDashboardRange] = useState(initialLocation.dashboardRange);
   const [form, setForm] = useState(DEFAULT_FORM);
   const [editingId, setEditingId] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -202,12 +231,12 @@ export default function App() {
   );
 
   const grafanaUrl = useMemo(() => {
-    const base = `${GRAFANA_DASHBOARD_URL}?orgId=1&from=now-15m&to=now&refresh=5s&kiosk`;
+    const base = `${GRAFANA_DASHBOARD_URL}?orgId=1&from=now-${dashboardRange}&to=now&refresh=5s&kiosk`;
     if (!selectedStream) {
       return `${base}&var-stream_name=All`;
     }
     return `${base}&var-stream_name=${encodeURIComponent(selectedStream.name)}`;
-  }, [selectedStream]);
+  }, [selectedStream, dashboardRange]);
 
   const latestStats = framePayload
     ? {
@@ -231,7 +260,7 @@ export default function App() {
     if (nextView === currentView) {
       return;
     }
-    const nextLocation = buildLocation(nextView, selectedStreamId);
+    const nextLocation = buildLocation(nextView, selectedStreamId, dashboardRange);
     window.history.pushState(null, "", nextLocation);
     setCurrentView(nextView);
   };
@@ -267,6 +296,7 @@ export default function App() {
       const locationState = parseLocationState();
       setCurrentView(locationState.view);
       setSelectedStreamId(locationState.selectedStreamId);
+      setDashboardRange(locationState.dashboardRange);
     };
 
     window.addEventListener("popstate", syncFromLocation);
@@ -274,12 +304,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const nextLocation = buildLocation(currentView, selectedStreamId);
+    const nextLocation = buildLocation(currentView, selectedStreamId, dashboardRange);
     const currentLocation = `${window.location.pathname}${window.location.search}`;
     if (nextLocation !== currentLocation) {
       window.history.replaceState(null, "", nextLocation);
     }
-  }, [currentView, selectedStreamId]);
+  }, [currentView, selectedStreamId, dashboardRange]);
 
   useEffect(() => {
     const run = async () => {
@@ -719,20 +749,35 @@ export default function App() {
           <section className="panel dashboard-route-panel">
             <div className="dashboard-toolbar">
               <h2>Vector Flow Overview</h2>
-              <label className="dashboard-filter">
-                Stream
-                <select
-                  value={selectedStreamId || ""}
-                  onChange={(event) => setSelectedStreamId(event.target.value || null)}
-                >
-                  <option value="">All Streams</option>
-                  {streams.map((stream) => (
-                    <option key={stream.id} value={stream.id}>
-                      {stream.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="dashboard-filters">
+                <label className="dashboard-filter">
+                  Stream
+                  <select
+                    value={selectedStreamId || ""}
+                    onChange={(event) => setSelectedStreamId(event.target.value || null)}
+                  >
+                    <option value="">All Streams</option>
+                    {streams.map((stream) => (
+                      <option key={stream.id} value={stream.id}>
+                        {stream.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="dashboard-filter">
+                  Time
+                  <select
+                    value={dashboardRange}
+                    onChange={(event) => setDashboardRange(normalizeDashboardRange(event.target.value))}
+                  >
+                    {DASHBOARD_TIME_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
             </div>
             {error && <p className="error">{error}</p>}
             <p className="muted">

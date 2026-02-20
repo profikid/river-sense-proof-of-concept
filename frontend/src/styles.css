@@ -496,9 +496,15 @@ input:focus {
   margin: 0;
 }
 
+.dashboard-filters {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
 .dashboard-filter {
-  min-width: 220px;
-  max-width: 360px;
+  min-width: 180px;
+  max-width: 280px;
 }
 
 .grafana-route-frame {

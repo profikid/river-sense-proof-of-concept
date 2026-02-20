@@ -605,6 +605,16 @@ input:focus {
   flex-wrap: wrap;
 }
 
+.live-layout-toggle {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.live-layout-toggle .btn.active {
+  border-color: rgba(22, 242, 179, 0.8);
+}
+
 .live-control {
   min-width: 120px;
   display: grid;
@@ -613,7 +623,16 @@ input:focus {
   color: var(--muted);
 }
 
+.live-control-name {
+  min-width: 190px;
+}
+
 .live-control select {
+  padding: 0.42rem 0.5rem;
+  font-size: 0.78rem;
+}
+
+.live-control input {
   padding: 0.42rem 0.5rem;
   font-size: 0.78rem;
 }
@@ -623,6 +642,85 @@ input:focus {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 0.7rem;
+}
+
+.live-list {
+  margin-top: 0.7rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.live-list-row {
+  border: 1px solid rgba(135, 207, 211, 0.22);
+  border-radius: 12px;
+  background: rgba(9, 20, 28, 0.72);
+}
+
+.live-list-row.error {
+  border-color: rgba(255, 111, 97, 0.7);
+  background: rgba(77, 25, 19, 0.35);
+}
+
+.live-list-row.selected {
+  border-color: rgba(22, 242, 179, 0.72);
+  box-shadow: 0 0 0 1px rgba(22, 242, 179, 0.35);
+}
+
+.live-list-row-main {
+  width: 100%;
+  border: 0;
+  padding: 0.65rem;
+  margin: 0;
+  background: transparent;
+  color: inherit;
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) 1fr;
+  gap: 0.75rem;
+  align-items: stretch;
+  text-align: left;
+  cursor: pointer;
+}
+
+.live-list-row-main:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(22, 242, 179, 0.5);
+  border-radius: 10px;
+}
+
+.live-list-preview .live-frame-shell {
+  height: 100%;
+  min-height: 132px;
+}
+
+.live-list-content {
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+}
+
+.live-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.live-list-title {
+  font-weight: 600;
+}
+
+.live-list-metrics {
+  margin-top: 0;
+}
+
+.live-actions {
+  align-items: center;
+}
+
+.live-list-row .live-actions {
+  margin: 0;
+  padding: 0 0.65rem 0.65rem;
+  border-top: 1px solid rgba(135, 207, 211, 0.16);
 }
 
 .live-card {
@@ -796,6 +894,15 @@ input:focus {
 
   .live-toolbar-actions {
     justify-content: flex-start;
+  }
+
+  .live-list-row-main {
+    grid-template-columns: 1fr;
+  }
+
+  .live-list-preview .live-frame-shell {
+    min-height: unset;
+    aspect-ratio: 16 / 9;
   }
 }
 

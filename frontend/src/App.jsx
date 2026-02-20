@@ -93,6 +93,11 @@ const LIVE_SORT_FIELD_OPTIONS = [
   { value: "max_magnitude", label: "Max Magnitude" },
 ];
 
+const LIVE_LAYOUT_OPTIONS = [
+  { value: "grid", label: "Grid" },
+  { value: "list", label: "List" },
+];
+
 function normalizeDashboardRange(value) {
   const candidate = String(value || "").trim();
   if (!candidate) {
@@ -282,9 +287,11 @@ export default function App() {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [liveNameFilter, setLiveNameFilter] = useState("");
   const [liveStatusFilter, setLiveStatusFilter] = useState("all");
   const [liveSortField, setLiveSortField] = useState("name");
   const [liveSortOrder, setLiveSortOrder] = useState("asc");
+  const [liveLayout, setLiveLayout] = useState("grid");
 
   const canvasRef = useRef(null);
   const imageRef = useRef(new Image());
@@ -714,6 +721,15 @@ export default function App() {
     }
   };
 
+  const handleEditFromLive = (stream) => {
+    setSelectedStreamId(stream.id);
+    setEditingId(stream.id);
+    setForm(streamToForm(stream));
+    const nextLocation = buildLocation("config", stream.id, dashboardRange);
+    window.history.pushState(null, "", nextLocation);
+    setCurrentView("config");
+  };
+
   const handleSystemSettingsSave = async (event) => {
     event.preventDefault();
     setSettingsSaving(true);
@@ -741,7 +757,12 @@ export default function App() {
   };
 
   const liveFilteredSortedStreams = useMemo(() => {
+    const nameFilter = liveNameFilter.trim().toLowerCase();
     const filtered = streams.filter((stream) => {
+      const streamName = String(stream.name || "").toLowerCase();
+      if (nameFilter && !streamName.includes(nameFilter)) {
+        return false;
+      }
       const status = String(stream.connection_status || "unknown").toLowerCase();
       if (liveStatusFilter === "connected") {
         return status === "connected" || status === "ok";
@@ -806,12 +827,12 @@ export default function App() {
         ? leftMetric - rightMetric
         : rightMetric - leftMetric;
     });
-  }, [streams, liveFramesByStream, liveStatusFilter, liveSortField, liveSortOrder]);
+  }, [streams, liveFramesByStream, liveNameFilter, liveStatusFilter, liveSortField, liveSortOrder]);
 
   const selectedLiveStream = selectedStreamId
     ? liveFilteredSortedStreams.find((stream) => stream.id === selectedStreamId) || null
     : null;
-  const liveGridStreams = selectedLiveStream
+  const livePrimaryStreams = selectedLiveStream
     ? liveFilteredSortedStreams.filter((stream) => stream.id !== selectedLiveStream.id)
     : liveFilteredSortedStreams;
 
@@ -864,6 +885,115 @@ export default function App() {
         </div>
 
         {stream.last_error && <p className="stream-error">{stream.last_error}</p>}
+        <div className="row actions live-actions">
+          <button
+            disabled={busy}
+            className="btn tiny"
+            type="button"
+            onClick={() => handleEditFromLive(stream)}
+          >
+            Edit
+          </button>
+          <button
+            disabled={busy}
+            className="btn tiny"
+            type="button"
+            onClick={() => handleToggle(stream)}
+          >
+            {stream.is_active ? "Deactivate" : "Activate"}
+          </button>
+          <button
+            disabled={busy}
+            className="btn tiny danger"
+            type="button"
+            onClick={() => handleDelete(stream)}
+          >
+            Delete
+          </button>
+        </div>
+      </article>
+    );
+  };
+
+  const renderLiveListRow = (stream) => {
+    const livePayload = liveFramesByStream[stream.id];
+    const hasFrame = !!livePayload?.frame_b64;
+    const directionCoherencePercent = Number.isFinite(Number(livePayload?.direction_coherence))
+      ? Number(livePayload.direction_coherence) * 100
+      : 0;
+
+    return (
+      <article
+        className={`live-list-row ${statusClass(stream)} ${selectedStreamId === stream.id ? "selected" : ""}`}
+      >
+        <button
+          type="button"
+          className="live-list-row-main"
+          onClick={() => setSelectedStreamId(stream.id)}
+        >
+          <div className="live-list-preview">
+            <div className="live-frame-shell">
+              {hasFrame ? (
+                <img
+                  className="live-frame"
+                  src={`data:image/jpeg;base64,${livePayload.frame_b64}`}
+                  alt={`${stream.name} live preview`}
+                  loading="lazy"
+                />
+              ) : (
+                <div className="live-placeholder">
+                  <span>No live frame yet</span>
+                  <small>
+                    {stream.is_active
+                      ? "Worker is starting or reconnecting."
+                      : "Stream is deactivated."}
+                  </small>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="live-list-content">
+            <div className="live-list-header">
+              <span className="live-list-title">{stream.name}</span>
+              <span className={`status ${statusClass(stream)}`}>{statusLabel(stream)}</span>
+            </div>
+            <div className="live-metrics live-list-metrics">
+              <span>FPS {toFixedValue(livePayload?.fps, 1, "0.0")}</span>
+              <span>Vectors {livePayload?.vector_count ?? 0}</span>
+              <span>Avg {toFixedValue(livePayload?.avg_magnitude, 3, "0.000")}</span>
+              <span>Dir {toFixedValue(livePayload?.direction_degrees, 1, "0.0")}°</span>
+              <span>Align {toFixedValue(directionCoherencePercent, 0, "0")}%</span>
+            </div>
+            {stream.last_error && <p className="stream-error">{stream.last_error}</p>}
+          </div>
+        </button>
+        <div className="row actions live-actions">
+          <button
+            disabled={busy}
+            className="btn tiny"
+            type="button"
+            onClick={() => handleEditFromLive(stream)}
+          >
+            Edit
+          </button>
+          <button
+            disabled={busy}
+            className="btn tiny"
+            type="button"
+            onClick={() => handleToggle(stream)}
+          >
+            {stream.is_active ? "Deactivate" : "Activate"}
+          </button>
+          <button
+            disabled={busy}
+            className="btn tiny danger"
+            type="button"
+            onClick={() => handleDelete(stream)}
+          >
+            Delete
+          </button>
+        </div>
       </article>
     );
   };
@@ -1151,6 +1281,15 @@ export default function App() {
               </div>
               <div className="live-toolbar-actions">
                 <div className="live-controls">
+                  <label className="live-control live-control-name">
+                    Name
+                    <input
+                      type="search"
+                      value={liveNameFilter}
+                      onChange={(event) => setLiveNameFilter(event.target.value)}
+                      placeholder="Search stream name"
+                    />
+                  </label>
                   <label className="live-control">
                     Status
                     <select
@@ -1188,6 +1327,18 @@ export default function App() {
                     </select>
                   </label>
                 </div>
+                <div className="live-layout-toggle" role="tablist" aria-label="Live overview layout">
+                  {LIVE_LAYOUT_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`btn tiny ${liveLayout === option.value ? "primary active" : ""}`}
+                      onClick={() => setLiveLayout(option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
                 {selectedLiveStream && (
                   <button
                     type="button"
@@ -1207,12 +1358,22 @@ export default function App() {
               <p className="muted">No streams match the current filter.</p>
             ) : (
               <>
-                {liveGridStreams.length > 0 && (
-                  <div className="live-grid">
-                    {liveGridStreams.map((stream) => (
-                      <div key={stream.id}>{renderLiveCard(stream)}</div>
-                    ))}
-                  </div>
+                {livePrimaryStreams.length > 0 && (
+                  <>
+                    {liveLayout === "list" ? (
+                      <div className="live-list">
+                        {livePrimaryStreams.map((stream) => (
+                          <div key={stream.id}>{renderLiveListRow(stream)}</div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="live-grid">
+                        {livePrimaryStreams.map((stream) => (
+                          <div key={stream.id}>{renderLiveCard(stream)}</div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {selectedLiveStream && (

@@ -46,11 +46,29 @@
   },
   {
     "targets": [
+      "vector-worker-be57c2bd986f:9100"
+    ],
+    "labels": {
+      "stream_id": "be57c2bd-986f-4c47-a31f-1519f96e05b2",
+      "stream_name": "erewr"
+    }
+  },
+  {
+    "targets": [
       "vector-worker-47dcc8420ccc:9100"
     ],
     "labels": {
       "stream_id": "47dcc842-0ccc-461d-969a-6c0faca0e53f",
       "stream_name": "sdfsdfsdfaaa"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-d9a01b236e8d:9100"
+    ],
+    "labels": {
+      "stream_id": "d9a01b23-6e8d-407e-a64d-435da318fad3",
+      "stream_name": "qqqqqqq"
     }
   },
   {

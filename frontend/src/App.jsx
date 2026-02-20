@@ -233,16 +233,11 @@ export default function App() {
     setStreams(data);
 
     setSelectedStreamId((currentSelectedId) => {
-      if (data.length === 0) {
+      if (!currentSelectedId || data.length === 0) {
         return null;
       }
-      const stillExists = currentSelectedId
-        ? data.some((stream) => stream.id === currentSelectedId)
-        : false;
-      if (!currentSelectedId || !stillExists) {
-        return data[0].id;
-      }
-      return currentSelectedId;
+      const stillExists = data.some((stream) => stream.id === currentSelectedId);
+      return stillExists ? currentSelectedId : null;
     });
   };
 

@@ -1,13 +1,13 @@
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import CONTENT_TYPE_LATEST, Gauge, generate_latest
-from sqlalchemy import func, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .database import Base, SessionLocal, engine, get_db
@@ -32,6 +32,15 @@ managed_streams_metric = Gauge(
 active_streams_metric = Gauge(
     "vector_flow_active_streams_total",
     "Number of currently active streams",
+)
+running_streams_metric = Gauge(
+    "vector_flow_running_streams_total",
+    "Number of currently running streams with healthy connection",
+)
+streams_by_state_metric = Gauge(
+    "vector_flow_streams_by_state",
+    "Number of streams by dashboard state",
+    ["state"],
 )
 
 SCHEMA_PATCHES = [
@@ -106,7 +115,7 @@ app.add_middleware(
 )
 
 
-def serialize_stream(stream: CameraStream) -> StreamRead:
+def resolve_stream_status(stream: CameraStream) -> tuple[str, str, Optional[str], Optional[str]]:
     worker_status = orchestrator.get_worker_status(stream.worker_container_name)
     state = frame_broker.get_stream_state(str(stream.id)) or {}
     connection_status = state.get("connection_status")
@@ -122,6 +131,20 @@ def serialize_stream(stream: CameraStream) -> StreamRead:
             last_error = "Worker container is not running."
     elif not connection_status:
         connection_status = "starting"
+
+    return worker_status, connection_status, last_error, last_event_at
+
+
+def classify_dashboard_state(stream: CameraStream, connection_status: str) -> str:
+    if not stream.is_active:
+        return "deactivated"
+    if connection_status in {"connected", "ok"}:
+        return "running"
+    return "error"
+
+
+def serialize_stream(stream: CameraStream) -> StreamRead:
+    worker_status, connection_status, last_error, last_event_at = resolve_stream_status(stream)
 
     return StreamRead(
         id=stream.id,
@@ -336,11 +359,21 @@ def delete_stream(stream_id: UUID, db: Session = Depends(get_db)) -> MessageResp
 
 @app.get("/metrics")
 def metrics(db: Session = Depends(get_db)) -> Response:
-    total_streams = db.query(func.count(CameraStream.id)).scalar() or 0
-    active_streams = db.query(func.count(CameraStream.id)).filter(CameraStream.is_active.is_(True)).scalar() or 0
+    streams = db.query(CameraStream).all()
+    total_streams = len(streams)
+    active_streams = sum(1 for stream in streams if stream.is_active)
+
+    state_counts = {"running": 0, "deactivated": 0, "error": 0}
+    for stream in streams:
+        _, connection_status, _, _ = resolve_stream_status(stream)
+        state = classify_dashboard_state(stream, connection_status)
+        state_counts[state] += 1
 
     managed_streams_metric.set(total_streams)
     active_streams_metric.set(active_streams)
+    running_streams_metric.set(state_counts["running"])
+    for state, count in state_counts.items():
+        streams_by_state_metric.labels(state=state).set(count)
 
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 

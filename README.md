@@ -201,6 +201,8 @@ API exposes:
 
 - `vector_flow_managed_streams_total`
 - `vector_flow_active_streams_total`
+- `vector_flow_running_streams_total`
+- `vector_flow_streams_by_state{state="running|deactivated|error"}`
 
 ## Grafana
 
@@ -210,7 +212,7 @@ Grafana is auto-provisioned with:
 - Dashboard: **Vector Flow Overview** (`uid: vector-flow`)
 
 The frontend embeds this dashboard and passes the selected stream via `var-stream_name`.
-Dashboard panels include optical-flow metrics plus worker memory and GPU observability.
+Dashboard panels include optical-flow metrics, worker memory/GPU observability, a running-stream count stat, and a fleet state pie chart (`running`, `deactivated`, `error`).
 
 ## Stream Validation and Errors
 

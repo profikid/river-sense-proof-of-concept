@@ -173,11 +173,11 @@ export default function App() {
 
   const grafanaUrl = useMemo(() => {
     const base = `${GRAFANA_DASHBOARD_URL}?orgId=1&from=now-15m&to=now&refresh=5s&kiosk`;
-    if (!selectedStreamId) {
-      return `${base}&var-stream_id=All`;
+    if (!selectedStream) {
+      return `${base}&var-stream_name=All`;
     }
-    return `${base}&var-stream_id=${encodeURIComponent(selectedStreamId)}`;
-  }, [selectedStreamId]);
+    return `${base}&var-stream_name=${encodeURIComponent(selectedStream.name)}`;
+  }, [selectedStream]);
 
   const latestStats = framePayload
     ? {

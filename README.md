@@ -209,7 +209,7 @@ Grafana is auto-provisioned with:
 - Prometheus datasource (`uid: prometheus`)
 - Dashboard: **Vector Flow Overview** (`uid: vector-flow`)
 
-The frontend embeds this dashboard and passes the selected stream via `var-stream_id`.
+The frontend embeds this dashboard and passes the selected stream via `var-stream_name`.
 Dashboard panels include optical-flow metrics plus worker memory and GPU observability.
 
 ## Stream Validation and Errors

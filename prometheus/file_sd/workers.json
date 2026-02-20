@@ -16,23 +16,5 @@
       "stream_id": "d3db111e-67b3-46ee-93d7-fd285eddd75d",
       "stream_name": "smoketest"
     }
-  },
-  {
-    "targets": [
-      "vector-worker-34574dca3d71:9100"
-    ],
-    "labels": {
-      "stream_id": "34574dca-3d71-4a3a-959c-67b51240e240",
-      "stream_name": "something else"
-    }
-  },
-  {
-    "targets": [
-      "vector-worker-5e4d5863d818:9100"
-    ],
-    "labels": {
-      "stream_id": "5e4d5863-d818-4a8c-8987-e26ac25d6bf9",
-      "stream_name": "joehoe"
-    }
   }
 ]

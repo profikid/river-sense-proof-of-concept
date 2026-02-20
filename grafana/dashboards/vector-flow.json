@@ -79,7 +79,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "avg(vector_flow_magnitude_avg{stream_id=~\"$stream_id\"})",
+          "expr": "avg(vector_flow_magnitude_avg{stream_name=~\"$stream_name\"})",
           "legendFormat": "avg",
           "range": true,
           "refId": "A"
@@ -145,7 +145,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "max(vector_flow_magnitude_max{stream_id=~\"$stream_id\"})",
+          "expr": "max(vector_flow_magnitude_max{stream_name=~\"$stream_name\"})",
           "legendFormat": "max",
           "range": true,
           "refId": "A"
@@ -211,7 +211,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum(vector_flow_vector_count{stream_id=~\"$stream_id\"})",
+          "expr": "sum(vector_flow_vector_count{stream_name=~\"$stream_name\"})",
           "legendFormat": "vectors",
           "range": true,
           "refId": "A"
@@ -277,7 +277,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "avg(vector_flow_fps{stream_id=~\"$stream_id\"})",
+          "expr": "avg(vector_flow_fps{stream_name=~\"$stream_name\"})",
           "legendFormat": "fps",
           "range": true,
           "refId": "A"
@@ -361,14 +361,14 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "vector_flow_magnitude_avg{stream_id=~\"$stream_id\"}",
+          "expr": "vector_flow_magnitude_avg{stream_name=~\"$stream_name\"}",
           "legendFormat": "{{stream_name}} avg",
           "range": true,
           "refId": "A"
         },
         {
           "editorMode": "code",
-          "expr": "vector_flow_magnitude_max{stream_id=~\"$stream_id\"}",
+          "expr": "vector_flow_magnitude_max{stream_name=~\"$stream_name\"}",
           "legendFormat": "{{stream_name}} max",
           "range": true,
           "refId": "B"
@@ -452,14 +452,14 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "vector_flow_vector_count{stream_id=~\"$stream_id\"}",
+          "expr": "vector_flow_vector_count{stream_name=~\"$stream_name\"}",
           "legendFormat": "{{stream_name}} vectors",
           "range": true,
           "refId": "A"
         },
         {
           "editorMode": "code",
-          "expr": "vector_flow_fps{stream_id=~\"$stream_id\"}",
+          "expr": "vector_flow_fps{stream_name=~\"$stream_name\"}",
           "legendFormat": "{{stream_name}} fps",
           "range": true,
           "refId": "B"
@@ -525,7 +525,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "avg(vector_flow_worker_memory_rss_bytes{stream_id=~\"$stream_id\"}) / 1024 / 1024",
+          "expr": "avg(vector_flow_worker_memory_rss_bytes{stream_name=~\"$stream_name\"}) / 1024 / 1024",
           "legendFormat": "rss",
           "range": true,
           "refId": "A"
@@ -591,7 +591,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "avg(vector_flow_gpu_utilization_percent{stream_id=~\"$stream_id\"})",
+          "expr": "avg(vector_flow_gpu_utilization_percent{stream_name=~\"$stream_name\"})",
           "legendFormat": "gpu util",
           "range": true,
           "refId": "A"
@@ -657,7 +657,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "avg(vector_flow_gpu_memory_used_bytes{stream_id=~\"$stream_id\"}) / 1024 / 1024",
+          "expr": "avg(vector_flow_gpu_memory_used_bytes{stream_name=~\"$stream_name\"}) / 1024 / 1024",
           "legendFormat": "gpu mem",
           "range": true,
           "refId": "A"
@@ -731,7 +731,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "max(vector_flow_gpu_available{stream_id=~\"$stream_id\"})",
+          "expr": "max(vector_flow_gpu_available{stream_name=~\"$stream_name\"})",
           "legendFormat": "gpu",
           "range": true,
           "refId": "A"
@@ -815,7 +815,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "vector_flow_worker_memory_rss_bytes{stream_id=~\"$stream_id\"}",
+          "expr": "vector_flow_worker_memory_rss_bytes{stream_name=~\"$stream_name\"}",
           "legendFormat": "{{stream_name}} rss",
           "range": true,
           "refId": "A"
@@ -899,14 +899,14 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "vector_flow_gpu_utilization_percent{stream_id=~\"$stream_id\"}",
+          "expr": "vector_flow_gpu_utilization_percent{stream_name=~\"$stream_name\"}",
           "legendFormat": "{{stream_name}} util",
           "range": true,
           "refId": "A"
         },
         {
           "editorMode": "code",
-          "expr": "vector_flow_gpu_available{stream_id=~\"$stream_id\"} * 100",
+          "expr": "vector_flow_gpu_available{stream_name=~\"$stream_name\"} * 100",
           "legendFormat": "{{stream_name}} availability",
           "range": true,
           "refId": "B"
@@ -935,16 +935,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(vector_flow_magnitude_avg, stream_id)",
+        "definition": "label_values(vector_flow_magnitude_avg, stream_name)",
         "hide": 0,
         "includeAll": true,
-        "label": "Stream ID",
+        "label": "Stream Name",
         "multi": false,
-        "name": "stream_id",
+        "name": "stream_name",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(vector_flow_magnitude_avg, stream_id)",
+          "query": "label_values(vector_flow_magnitude_avg, stream_name)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,

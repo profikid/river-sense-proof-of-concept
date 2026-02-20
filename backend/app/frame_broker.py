@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 from contextlib import suppress
 from datetime import datetime, timezone
 from typing import Dict, Optional
@@ -17,8 +18,14 @@ class FrameBroker:
         self.channel = channel
         self.connections: Dict[WebSocket, Optional[str]] = {}
         self.stream_states: Dict[str, dict] = {}
+        self.last_frame_emit_at: Dict[str, float] = {}
         self._task: Optional[asyncio.Task] = None
         self._running = False
+        self.frame_emit_interval_sec = 0.0
+
+    def set_frame_rate_limit(self, fps: float) -> None:
+        safe_fps = max(0.5, min(float(fps), 30.0))
+        self.frame_emit_interval_sec = 1.0 / safe_fps
 
     async def start(self) -> None:
         if self._task:
@@ -79,15 +86,24 @@ class FrameBroker:
 
     async def _broadcast(self, payload: str) -> None:
         stream_id = None
+        is_frame = False
         try:
             decoded = json.loads(payload)
             stream_id = decoded.get("stream_id")
+            is_frame = decoded.get("type") == "frame" or "frame_b64" in decoded
             self._update_stream_state(decoded)
         except json.JSONDecodeError:
             pass
 
+        if is_frame and stream_id and self.frame_emit_interval_sec > 0:
+            now = time.perf_counter()
+            last_emit = self.last_frame_emit_at.get(stream_id, 0.0)
+            if now - last_emit < self.frame_emit_interval_sec:
+                return
+            self.last_frame_emit_at[stream_id] = now
+
         stale = []
-        for websocket, stream_filter in self.connections.items():
+        for websocket, stream_filter in list(self.connections.items()):
             if stream_filter and stream_id and stream_filter != stream_id:
                 continue
             if stream_filter and stream_id is None:

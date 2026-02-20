@@ -114,6 +114,15 @@ class FlowProcessor:
         self.redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
         self.redis_fallback_urls_raw = os.getenv("REDIS_FALLBACK_URLS", "")
         self.redis_channel = os.getenv("REDIS_CHANNEL", "flow.frames")
+        self.live_preview_fps = float(clamp(float(os.getenv("LIVE_PREVIEW_FPS", "6.0")), 0.5, 30.0))
+        self.live_preview_jpeg_quality = int(
+            clamp(float(os.getenv("LIVE_PREVIEW_JPEG_QUALITY", "65")), 30.0, 95.0)
+        )
+        self.live_preview_max_width = int(
+            clamp(float(os.getenv("LIVE_PREVIEW_MAX_WIDTH", "960")), 0.0, 1920.0)
+        )
+        self.live_preview_interval_sec = 1.0 / max(0.5, self.live_preview_fps)
+        self.last_preview_publish_at = 0.0
         self.redis_log_interval_sec = float(os.getenv("REDIS_LOG_INTERVAL_SEC", "15.0"))
         self.reconnect_delay = float(os.getenv("RECONNECT_DELAY_SEC", "2.0"))
         self.max_vectors_out = int(os.getenv("MAX_VECTORS_OUT", "120"))
@@ -173,7 +182,8 @@ class FlowProcessor:
             (
                 "Worker configuration loaded: grid=%s win_radius=%s threshold=%.3f "
                 "arrow_scale=%.2f arrow_opacity=%.1f gradient_intensity=%.2f "
-                "show_feed=%s show_arrows=%s show_magnitude=%s show_trails=%s"
+                "show_feed=%s show_arrows=%s show_magnitude=%s show_trails=%s "
+                "preview_fps=%.1f preview_jpeg_quality=%s preview_max_width=%s"
             ),
             self.grid_size,
             self.win_radius,
@@ -185,6 +195,9 @@ class FlowProcessor:
             self.show_arrows,
             self.show_magnitude,
             self.show_trails,
+            self.live_preview_fps,
+            self.live_preview_jpeg_quality,
+            self.live_preview_max_width,
         )
 
     @staticmethod
@@ -506,7 +519,16 @@ class FlowProcessor:
         direction_deg: float,
         direction_coherence: float,
     ) -> None:
-        ok, encoded = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 72])
+        if self.live_preview_max_width > 0 and frame.shape[1] > self.live_preview_max_width:
+            ratio = self.live_preview_max_width / max(1, frame.shape[1])
+            target_h = max(1, int(round(frame.shape[0] * ratio)))
+            frame = cv2.resize(frame, (self.live_preview_max_width, target_h), interpolation=cv2.INTER_AREA)
+
+        ok, encoded = cv2.imencode(
+            ".jpg",
+            frame,
+            [int(cv2.IMWRITE_JPEG_QUALITY), self.live_preview_jpeg_quality],
+        )
         if not ok:
             return
 
@@ -646,15 +668,18 @@ class FlowProcessor:
                 self._publish_status("connected")
 
                 overlay = self._build_overlay(frame, vectors)
-                self._publish_frame(
-                    overlay,
-                    vectors,
-                    fps,
-                    avg_mag,
-                    max_mag,
-                    direction_deg,
-                    direction_coherence,
-                )
+                now = time.perf_counter()
+                if now - self.last_preview_publish_at >= self.live_preview_interval_sec:
+                    self._publish_frame(
+                        overlay,
+                        vectors,
+                        fps,
+                        avg_mag,
+                        max_mag,
+                        direction_deg,
+                        direction_coherence,
+                    )
+                    self.last_preview_publish_at = now
 
                 self.prev_gray = gray
 

@@ -57,3 +57,15 @@ ALTER TABLE camera_streams ALTER COLUMN show_magnitude SET NOT NULL;
 ALTER TABLE camera_streams ALTER COLUMN show_trails SET NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_camera_streams_active ON camera_streams(is_active);
+
+CREATE TABLE IF NOT EXISTS system_settings (
+    id INTEGER PRIMARY KEY,
+    live_preview_fps DOUBLE PRECISION NOT NULL DEFAULT 6.0,
+    live_preview_jpeg_quality INTEGER NOT NULL DEFAULT 65,
+    live_preview_max_width INTEGER NOT NULL DEFAULT 960,
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO system_settings (id, live_preview_fps, live_preview_jpeg_quality, live_preview_max_width, updated_at)
+VALUES (1, 6.0, 65, 960, NOW())
+ON CONFLICT (id) DO NOTHING;

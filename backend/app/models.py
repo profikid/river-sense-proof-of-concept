@@ -26,3 +26,18 @@ class CameraStream(Base):
     worker_container_name = Column(String(255), nullable=True)
     worker_started_at = Column(DateTime(timezone=False), nullable=True)
     created_at = Column(DateTime(timezone=False), nullable=False, server_default=func.now())
+
+
+class SystemSettings(Base):
+    __tablename__ = "system_settings"
+
+    id = Column(Integer, primary_key=True, default=1)
+    live_preview_fps = Column(Float, nullable=False, default=6.0)
+    live_preview_jpeg_quality = Column(Integer, nullable=False, default=65)
+    live_preview_max_width = Column(Integer, nullable=False, default=960)
+    updated_at = Column(
+        DateTime(timezone=False),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

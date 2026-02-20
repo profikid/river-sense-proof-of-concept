@@ -9,7 +9,7 @@ import docker
 from docker.errors import APIError, DockerException, ImageNotFound, NotFound
 from sqlalchemy.orm import Session
 
-from .models import CameraStream
+from .models import CameraStream, SystemSettings
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +23,9 @@ class WorkerOrchestrator:
         self.metrics_port = int(os.getenv("WORKER_METRICS_PORT", "9100"))
         self.redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
         self.redis_channel = os.getenv("REDIS_CHANNEL", "flow.frames")
+        self.default_live_preview_fps = float(os.getenv("LIVE_PREVIEW_FPS_DEFAULT", "6.0"))
+        self.default_live_preview_jpeg_quality = int(os.getenv("LIVE_PREVIEW_JPEG_QUALITY_DEFAULT", "65"))
+        self.default_live_preview_max_width = int(os.getenv("LIVE_PREVIEW_MAX_WIDTH_DEFAULT", "960"))
 
         self.client: Optional[docker.DockerClient] = None
         self._image_checked = False
@@ -108,9 +111,35 @@ class WorkerOrchestrator:
         except Exception as exc:
             raise RuntimeError(f"Unable to fetch worker logs from {container_name}: {exc}") from exc
 
+    def _resolve_live_preview_settings(self, db: Session) -> tuple[float, int, int]:
+        fps = max(0.5, min(float(self.default_live_preview_fps), 30.0))
+        jpeg_quality = max(30, min(int(self.default_live_preview_jpeg_quality), 95))
+        max_width = max(0, min(int(self.default_live_preview_max_width), 1920))
+
+        try:
+            settings = db.get(SystemSettings, 1) or db.query(SystemSettings).first()
+        except Exception as exc:
+            logger.warning("Unable to read system settings, using defaults: %s", exc)
+            return fps, jpeg_quality, max_width
+
+        if not settings:
+            return fps, jpeg_quality, max_width
+
+        try:
+            fps = max(0.5, min(float(settings.live_preview_fps), 30.0))
+            jpeg_quality = max(30, min(int(settings.live_preview_jpeg_quality), 95))
+            max_width = max(0, min(int(settings.live_preview_max_width), 1920))
+        except Exception as exc:
+            logger.warning("System settings malformed, using defaults: %s", exc)
+
+        return fps, jpeg_quality, max_width
+
     def start_worker(self, db: Session, stream: CameraStream) -> str:
         client = self._require_client()
         self.ensure_worker_image()
+        live_preview_fps, live_preview_jpeg_quality, live_preview_max_width = (
+            self._resolve_live_preview_settings(db)
+        )
 
         container_name = self._container_name(str(stream.id))
 
@@ -144,6 +173,9 @@ class WorkerOrchestrator:
             "PROMETHEUS_PORT": str(self.metrics_port),
             "REDIS_URL": self.redis_url,
             "REDIS_CHANNEL": self.redis_channel,
+            "LIVE_PREVIEW_FPS": str(live_preview_fps),
+            "LIVE_PREVIEW_JPEG_QUALITY": str(live_preview_jpeg_quality),
+            "LIVE_PREVIEW_MAX_WIDTH": str(live_preview_max_width),
         }
 
         try:

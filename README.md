@@ -158,8 +158,11 @@ If the stream is active, saving config restarts its worker with the new settings
 - `POST /streams/{id}/activate` - start worker for stream
 - `POST /streams/{id}/deactivate` - stop worker for stream
 - `GET /streams/{id}/worker-logs?tail=160` - latest worker activity log lines
+- `GET /settings/system` - global live preview system settings
+- `PUT /settings/system` - update global live preview throttling settings
 - `GET /metrics` - API-level Prometheus metrics
 - `WS /ws/frames?stream_id=<uuid>` - live frame feed (filtered per stream)
+- `WS /ws/frames` - live frame feed for all streams
 
 OpenAPI docs:
 
@@ -183,6 +186,14 @@ OpenAPI docs:
 - `worker_container_name` active worker container name
 - `worker_started_at` worker start timestamp
 - `created_at` record creation timestamp
+
+`system_settings` table:
+
+- `id` singleton row id (`1`)
+- `live_preview_fps` global worker frame publish cap
+- `live_preview_jpeg_quality` global preview compression quality
+- `live_preview_max_width` global preview resize cap (0 disables resize)
+- `updated_at` last settings update timestamp
 
 ## Prometheus Metrics
 
@@ -224,9 +235,22 @@ Dashboard panels include optical-flow metrics, per-stream vector direction/coher
 Frontend routes:
 
 - `/` Stream configuration + live preview.
+- `/live` Live overview grid with latest frame from every stream.
 - `/dashboard` Embedded Grafana overview.
-- `?stream=<stream_id>` URL state for selected stream (used by both routes).
+- `/settings` Global system settings (live preview throttling).
+- `?stream=<stream_id>` URL state for selected stream (used across app routes).
 - `?range=<5m|15m|30m|1h|3h|6h|12h|24h|7d>` dashboard time window for embedded Grafana.
+
+### Live Frame Throttling
+
+Use `/settings` to control global live preview throughput:
+
+- `live_preview_fps`: publish cap per worker stream (default `6.0` FPS)
+- `live_preview_jpeg_quality`: JPEG quality for frame payloads (default `65`)
+- `live_preview_max_width`: resize cap before publish (`0` disables resizing, default `960`)
+
+Saving these settings can restart active workers so new limits apply immediately.
+The API frame broker also applies the same FPS cap when fan-out broadcasting to WebSocket clients.
 
 ### Grafana Alerts
 
@@ -292,6 +316,9 @@ Optional environment variables:
   - Ensure worker and Redis are on the same Docker network (`vectorflow`).
   - Restart API + workers after Redis is up: `docker compose restart api`.
   - Worker now auto-tries Redis host fallbacks (`redis`, `vectorflow-redis`) and throttles repeated warning spam.
+- **Frame broker reconnects with Redis `output buffer limits`**:
+  - Reduce frame throughput in `/settings` by lowering preview FPS and JPEG quality and/or setting a smaller max width.
+  - Save with worker restart enabled so active workers pick up new throttling values.
 
 ## Stop Everything
 

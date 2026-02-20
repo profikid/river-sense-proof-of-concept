@@ -68,6 +68,31 @@ const DASHBOARD_TIME_OPTIONS = [
   { value: "7d", label: "Last 7 days" },
 ];
 
+const DEFAULT_SYSTEM_SETTINGS = {
+  live_preview_fps: 6.0,
+  live_preview_jpeg_quality: 65,
+  live_preview_max_width: 960,
+  restart_workers: true,
+};
+
+const LIVE_STATUS_FILTER_OPTIONS = [
+  { value: "all", label: "All" },
+  { value: "connected", label: "Connected" },
+  { value: "inactive", label: "Inactive" },
+  { value: "starting", label: "Starting" },
+  { value: "error", label: "Error" },
+];
+
+const LIVE_SORT_FIELD_OPTIONS = [
+  { value: "name", label: "Name" },
+  { value: "fps", label: "FPS" },
+  { value: "vector_count", label: "Vector Count" },
+  { value: "direction_degrees", label: "Direction" },
+  { value: "direction_coherence", label: "Direction Align" },
+  { value: "avg_magnitude", label: "Avg Magnitude" },
+  { value: "max_magnitude", label: "Max Magnitude" },
+];
+
 function normalizeDashboardRange(value) {
   const candidate = String(value || "").trim();
   if (!candidate) {
@@ -90,7 +115,14 @@ function toWsBase(httpBase) {
 
 function parseLocationState() {
   const url = new URL(window.location.href);
-  const view = url.pathname.startsWith("/dashboard") ? "dashboard" : "config";
+  let view = "config";
+  if (url.pathname.startsWith("/dashboard")) {
+    view = "dashboard";
+  } else if (url.pathname.startsWith("/live")) {
+    view = "live";
+  } else if (url.pathname.startsWith("/settings")) {
+    view = "settings";
+  }
   const selected = url.searchParams.get("stream");
   const dashboardRange = normalizeDashboardRange(url.searchParams.get("range"));
   return {
@@ -101,7 +133,14 @@ function parseLocationState() {
 }
 
 function buildLocation(view, selectedStreamId, dashboardRange) {
-  const pathname = view === "dashboard" ? "/dashboard" : "/";
+  const pathname =
+    view === "dashboard"
+      ? "/dashboard"
+      : view === "live"
+        ? "/live"
+        : view === "settings"
+          ? "/settings"
+          : "/";
   const params = new URLSearchParams();
   if (selectedStreamId) {
     params.set("stream", selectedStreamId);
@@ -178,6 +217,14 @@ function statusLabel(stream) {
   return status;
 }
 
+function toFixedValue(value, digits, fallback = "0.0") {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return numeric.toFixed(digits);
+}
+
 async function apiRequest(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
@@ -224,12 +271,20 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [wsStatus, setWsStatus] = useState("disconnected");
   const [framePayload, setFramePayload] = useState(null);
+  const [liveFramesByStream, setLiveFramesByStream] = useState({});
   const [workerLogs, setWorkerLogs] = useState([]);
   const [workerLogStatus, setWorkerLogStatus] = useState("unknown");
   const [workerLogContainer, setWorkerLogContainer] = useState(null);
   const [workerLogError, setWorkerLogError] = useState("");
   const [workerLogLoading, setWorkerLogLoading] = useState(false);
   const [workerLogUpdatedAt, setWorkerLogUpdatedAt] = useState(null);
+  const [systemSettings, setSystemSettings] = useState(DEFAULT_SYSTEM_SETTINGS);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [liveStatusFilter, setLiveStatusFilter] = useState("all");
+  const [liveSortField, setLiveSortField] = useState("name");
+  const [liveSortOrder, setLiveSortOrder] = useState("asc");
 
   const canvasRef = useRef(null);
   const imageRef = useRef(new Image());
@@ -237,6 +292,11 @@ export default function App() {
   const selectedStream = useMemo(
     () => streams.find((stream) => stream.id === selectedStreamId) || null,
     [selectedStreamId, streams]
+  );
+
+  const liveFrameCount = useMemo(
+    () => Object.keys(liveFramesByStream).length,
+    [liveFramesByStream]
   );
 
   const grafanaUrl = useMemo(() => {
@@ -249,13 +309,9 @@ export default function App() {
 
   const latestStats = framePayload
     ? {
-        fps: framePayload.fps?.toFixed ? framePayload.fps.toFixed(1) : framePayload.fps,
-        avg: framePayload.avg_magnitude?.toFixed
-          ? framePayload.avg_magnitude.toFixed(3)
-          : framePayload.avg_magnitude,
-        max: framePayload.max_magnitude?.toFixed
-          ? framePayload.max_magnitude.toFixed(3)
-          : framePayload.max_magnitude,
+        fps: toFixedValue(framePayload.fps, 1, "0.0"),
+        avg: toFixedValue(framePayload.avg_magnitude, 3, "0.000"),
+        max: toFixedValue(framePayload.max_magnitude, 3, "0.000"),
         vectors: framePayload.vector_count ?? 0,
       }
     : {
@@ -272,6 +328,17 @@ export default function App() {
     const nextLocation = buildLocation(nextView, selectedStreamId, dashboardRange);
     window.history.pushState(null, "", nextLocation);
     setCurrentView(nextView);
+  };
+
+  const loadSystemSettings = async () => {
+    const data = await apiRequest("/settings/system");
+    setSystemSettings((current) => ({
+      ...current,
+      live_preview_fps: data.live_preview_fps,
+      live_preview_jpeg_quality: data.live_preview_jpeg_quality,
+      live_preview_max_width: data.live_preview_max_width,
+    }));
+    setSettingsLoaded(true);
   };
 
   const loadStreams = async () => {
@@ -324,7 +391,7 @@ export default function App() {
     const run = async () => {
       try {
         setError("");
-        await loadStreams();
+        await Promise.all([loadStreams(), loadSystemSettings()]);
       } catch (err) {
         setError(err.message);
       }
@@ -342,10 +409,63 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!selectedStreamId || currentView !== "config") {
+    if (currentView !== "settings" || settingsLoaded) {
+      return;
+    }
+
+    let cancelled = false;
+    setSettingsLoading(true);
+    loadSystemSettings()
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSettingsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentView, settingsLoaded]);
+
+  useEffect(() => {
+    const validStreamIds = new Set(streams.map((stream) => stream.id));
+    setLiveFramesByStream((current) => {
+      const next = {};
+      let changed = false;
+      for (const [streamId, payload] of Object.entries(current)) {
+        if (validStreamIds.has(streamId)) {
+          next[streamId] = payload;
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [streams]);
+
+  useEffect(() => {
+    const needsConfigSocket = currentView === "config";
+    const needsLiveSocket = currentView === "live";
+
+    if (!needsConfigSocket && !needsLiveSocket) {
       setFramePayload(null);
       setWsStatus("disconnected");
       return;
+    }
+
+    if (needsConfigSocket && !selectedStreamId) {
+      setFramePayload(null);
+      setWsStatus("disconnected");
+      return;
+    }
+
+    if (!needsConfigSocket) {
+      setFramePayload(null);
     }
 
     let socket;
@@ -358,7 +478,10 @@ export default function App() {
       }
 
       setWsStatus("connecting");
-      socket = new WebSocket(`${WS_BASE}/ws/frames?stream_id=${encodeURIComponent(selectedStreamId)}`);
+      const socketUrl = needsLiveSocket
+        ? `${WS_BASE}/ws/frames`
+        : `${WS_BASE}/ws/frames?stream_id=${encodeURIComponent(selectedStreamId)}`;
+      socket = new WebSocket(socketUrl);
 
       socket.onopen = () => {
         setWsStatus("connected");
@@ -368,6 +491,16 @@ export default function App() {
         try {
           const payload = JSON.parse(event.data);
           if (payload?.type === "frame" || payload?.frame_b64) {
+            if (needsLiveSocket) {
+              if (!payload?.stream_id) {
+                return;
+              }
+              setLiveFramesByStream((current) => ({
+                ...current,
+                [payload.stream_id]: payload,
+              }));
+              return;
+            }
             setFramePayload(payload);
           }
         } catch {
@@ -581,6 +714,160 @@ export default function App() {
     }
   };
 
+  const handleSystemSettingsSave = async (event) => {
+    event.preventDefault();
+    setSettingsSaving(true);
+    setError("");
+    setNotice("");
+
+    try {
+      await apiRequest("/settings/system", {
+        method: "PUT",
+        body: JSON.stringify({
+          live_preview_fps: Number(systemSettings.live_preview_fps),
+          live_preview_jpeg_quality: Number(systemSettings.live_preview_jpeg_quality),
+          live_preview_max_width: Number(systemSettings.live_preview_max_width),
+          restart_workers: !!systemSettings.restart_workers,
+        }),
+      });
+      setNotice("System settings saved. Active workers were restarted to apply throttling.");
+      await loadStreams();
+      await loadSystemSettings();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  const liveFilteredSortedStreams = useMemo(() => {
+    const filtered = streams.filter((stream) => {
+      const status = String(stream.connection_status || "unknown").toLowerCase();
+      if (liveStatusFilter === "connected") {
+        return status === "connected" || status === "ok";
+      }
+      if (liveStatusFilter === "inactive") {
+        return status === "inactive";
+      }
+      if (liveStatusFilter === "starting") {
+        return status === "starting";
+      }
+      if (liveStatusFilter === "error") {
+        return status === "error" || status === "worker_down";
+      }
+      return true;
+    });
+
+    const metricValue = (stream) => {
+      const payload = liveFramesByStream[stream.id];
+      if (liveSortField === "name") {
+        return null;
+      }
+      const raw =
+        liveSortField === "fps"
+          ? payload?.fps
+          : liveSortField === "vector_count"
+            ? payload?.vector_count
+            : liveSortField === "direction_degrees"
+              ? payload?.direction_degrees
+              : liveSortField === "direction_coherence"
+                ? payload?.direction_coherence
+                : liveSortField === "avg_magnitude"
+                  ? payload?.avg_magnitude
+                  : payload?.max_magnitude;
+      const numeric = Number(raw);
+      return Number.isFinite(numeric) ? numeric : null;
+    };
+
+    return [...filtered].sort((left, right) => {
+      if (liveSortField === "name") {
+        const leftName = String(left.name || "");
+        const rightName = String(right.name || "");
+        return liveSortOrder === "asc"
+          ? leftName.localeCompare(rightName)
+          : rightName.localeCompare(leftName);
+      }
+
+      const leftMetric = metricValue(left);
+      const rightMetric = metricValue(right);
+      if (leftMetric === null && rightMetric === null) {
+        return String(left.name || "").localeCompare(String(right.name || ""));
+      }
+      if (leftMetric === null) {
+        return 1;
+      }
+      if (rightMetric === null) {
+        return -1;
+      }
+      if (leftMetric === rightMetric) {
+        return String(left.name || "").localeCompare(String(right.name || ""));
+      }
+      return liveSortOrder === "asc"
+        ? leftMetric - rightMetric
+        : rightMetric - leftMetric;
+    });
+  }, [streams, liveFramesByStream, liveStatusFilter, liveSortField, liveSortOrder]);
+
+  const selectedLiveStream = selectedStreamId
+    ? liveFilteredSortedStreams.find((stream) => stream.id === selectedStreamId) || null
+    : null;
+  const liveGridStreams = selectedLiveStream
+    ? liveFilteredSortedStreams.filter((stream) => stream.id !== selectedLiveStream.id)
+    : liveFilteredSortedStreams;
+
+  const renderLiveCard = (stream, { featured = false } = {}) => {
+    const livePayload = liveFramesByStream[stream.id];
+    const hasFrame = !!livePayload?.frame_b64;
+    const directionCoherencePercent = Number.isFinite(Number(livePayload?.direction_coherence))
+      ? Number(livePayload.direction_coherence) * 100
+      : 0;
+
+    return (
+      <article
+        className={`live-card ${statusClass(stream)} ${selectedStreamId === stream.id ? "selected" : ""} ${featured ? "featured" : ""}`}
+      >
+        <button
+          type="button"
+          className="live-card-header"
+          onClick={() => setSelectedStreamId(stream.id)}
+        >
+          <span className="live-card-title">{stream.name}</span>
+          <span className={`status ${statusClass(stream)}`}>{statusLabel(stream)}</span>
+        </button>
+
+        <div className="live-frame-shell">
+          {hasFrame ? (
+            <img
+              className="live-frame"
+              src={`data:image/jpeg;base64,${livePayload.frame_b64}`}
+              alt={`${stream.name} live preview`}
+              loading="lazy"
+            />
+          ) : (
+            <div className="live-placeholder">
+              <span>No live frame yet</span>
+              <small>
+                {stream.is_active
+                  ? "Worker is starting or reconnecting."
+                  : "Stream is deactivated."}
+              </small>
+            </div>
+          )}
+        </div>
+
+        <div className="live-metrics">
+          <span>FPS {toFixedValue(livePayload?.fps, 1, "0.0")}</span>
+          <span>Vectors {livePayload?.vector_count ?? 0}</span>
+          <span>Avg {toFixedValue(livePayload?.avg_magnitude, 3, "0.000")}</span>
+          <span>Dir {toFixedValue(livePayload?.direction_degrees, 1, "0.0")}°</span>
+          <span>Align {toFixedValue(directionCoherencePercent, 0, "0")}%</span>
+        </div>
+
+        {stream.last_error && <p className="stream-error">{stream.last_error}</p>}
+      </article>
+    );
+  };
+
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -602,11 +889,26 @@ export default function App() {
             >
               Dashboard
             </button>
+            <button
+              type="button"
+              className={`btn tiny ${currentView === "live" ? "primary active" : ""}`}
+              onClick={() => switchView("live")}
+            >
+              Live Overview
+            </button>
+            <button
+              type="button"
+              className={`btn tiny ${currentView === "settings" ? "primary active" : ""}`}
+              onClick={() => switchView("settings")}
+            >
+              System Settings
+            </button>
           </div>
         </div>
         <div className="header-meta">
           <span className={`pill ${wsStatus}`}>WebSocket: {wsStatus}</span>
           <span className="pill">API: {API_BASE}</span>
+          {currentView === "live" && <span className="pill">Live Frames: {liveFrameCount}</span>}
           <span className="pill">Selected: {selectedStream?.name || "All streams"}</span>
         </div>
       </header>
@@ -835,7 +1137,95 @@ export default function App() {
             </section>
           </section>
         </main>
-      ) : (
+      ) : currentView === "live" ? (
+        <main className="app-grid dashboard-only">
+          <section className="panel live-route-panel">
+            <div className="live-toolbar">
+              <div>
+                <h2>Live Stream Overview</h2>
+                <p className="muted">
+                  {selectedLiveStream
+                    ? "Other streams stay in the grid. Selected stream is shown larger below."
+                    : "Latest frame for every stream in one grid. Use filters and sorting to inspect flow faster."}
+                </p>
+              </div>
+              <div className="live-toolbar-actions">
+                <div className="live-controls">
+                  <label className="live-control">
+                    Status
+                    <select
+                      value={liveStatusFilter}
+                      onChange={(event) => setLiveStatusFilter(event.target.value)}
+                    >
+                      {LIVE_STATUS_FILTER_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="live-control">
+                    Sort
+                    <select
+                      value={liveSortField}
+                      onChange={(event) => setLiveSortField(event.target.value)}
+                    >
+                      {LIVE_SORT_FIELD_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="live-control">
+                    Order
+                    <select
+                      value={liveSortOrder}
+                      onChange={(event) => setLiveSortOrder(event.target.value)}
+                    >
+                      <option value="asc">ASC</option>
+                      <option value="desc">DESC</option>
+                    </select>
+                  </label>
+                </div>
+                {selectedLiveStream && (
+                  <button
+                    type="button"
+                    className="btn tiny ghost"
+                    onClick={() => setSelectedStreamId(null)}
+                  >
+                    Clear Selection
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {error && <p className="error">{error}</p>}
+            {streams.length === 0 ? (
+              <p className="muted">No streams configured yet.</p>
+            ) : liveFilteredSortedStreams.length === 0 ? (
+              <p className="muted">No streams match the current filter.</p>
+            ) : (
+              <>
+                {liveGridStreams.length > 0 && (
+                  <div className="live-grid">
+                    {liveGridStreams.map((stream) => (
+                      <div key={stream.id}>{renderLiveCard(stream)}</div>
+                    ))}
+                  </div>
+                )}
+
+                {selectedLiveStream && (
+                  <section className="live-featured-section">
+                    <h3>Selected Stream</h3>
+                    {renderLiveCard(selectedLiveStream, { featured: true })}
+                  </section>
+                )}
+              </>
+            )}
+          </section>
+        </main>
+      ) : currentView === "dashboard" ? (
         <main className="app-grid dashboard-only">
           <section className="panel dashboard-route-panel">
             <div className="dashboard-toolbar">
@@ -882,6 +1272,104 @@ export default function App() {
               className="grafana-frame grafana-route-frame"
               loading="lazy"
             />
+          </section>
+        </main>
+      ) : (
+        <main className="app-grid dashboard-only">
+          <section className="panel settings-route-panel">
+            <div className="settings-toolbar">
+              <h2>System Settings</h2>
+              <p className="muted">
+                Global throttling for live frame publishing to keep Redis and UI stable.
+              </p>
+            </div>
+
+            {error && <p className="error">{error}</p>}
+            {notice && <p className="notice">{notice}</p>}
+
+            <form className="settings-form" onSubmit={handleSystemSettingsSave}>
+              <label>
+                Live Preview FPS Cap
+                <input
+                  type="number"
+                  min={0.5}
+                  max={30}
+                  step={0.5}
+                  value={systemSettings.live_preview_fps}
+                  onChange={(event) =>
+                    setSystemSettings((current) => ({
+                      ...current,
+                      live_preview_fps: Number(event.target.value),
+                    }))
+                  }
+                  required
+                />
+              </label>
+
+              <label>
+                Preview JPEG Quality
+                <input
+                  type="number"
+                  min={30}
+                  max={95}
+                  step={1}
+                  value={systemSettings.live_preview_jpeg_quality}
+                  onChange={(event) =>
+                    setSystemSettings((current) => ({
+                      ...current,
+                      live_preview_jpeg_quality: Number(event.target.value),
+                    }))
+                  }
+                  required
+                />
+              </label>
+
+              <label>
+                Preview Max Width (px, 0 disables resizing)
+                <input
+                  type="number"
+                  min={0}
+                  max={1920}
+                  step={10}
+                  value={systemSettings.live_preview_max_width}
+                  onChange={(event) =>
+                    setSystemSettings((current) => ({
+                      ...current,
+                      live_preview_max_width: Number(event.target.value),
+                    }))
+                  }
+                  required
+                />
+              </label>
+
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={systemSettings.restart_workers}
+                  onChange={(event) =>
+                    setSystemSettings((current) => ({
+                      ...current,
+                      restart_workers: event.target.checked,
+                    }))
+                  }
+                />
+                Restart active workers after save
+              </label>
+
+              <div className="row">
+                <button
+                  type="submit"
+                  className="btn primary"
+                  disabled={settingsSaving || settingsLoading}
+                >
+                  {settingsSaving ? "Saving..." : "Save System Settings"}
+                </button>
+              </div>
+            </form>
+
+            <p className="muted settings-note">
+              Lower FPS and width reduce Redis traffic and prevent pub/sub output buffer overflows.
+            </p>
           </section>
         </main>
       )}

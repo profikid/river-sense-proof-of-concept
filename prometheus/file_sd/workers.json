@@ -1,38 +1,83 @@
 [
   {
     "targets": [
-      "vector-worker-5e4d5863d818:9100"
+      "vector-worker-8e5dc0486983:9100"
     ],
     "labels": {
-      "stream_id": "5e4d5863-d818-4a8c-8987-e26ac25d6bf9",
-      "stream_name": "joehoe"
+      "stream_id": "8e5dc048-6983-4533-a1d2-08d504f9a981",
+      "stream_name": "wwwwwwwww"
     }
   },
   {
     "targets": [
-      "vector-worker-d3db111e67b3:9100"
+      "vector-worker-a0f0a6db5d1f:9100"
     ],
     "labels": {
-      "stream_id": "d3db111e-67b3-46ee-93d7-fd285eddd75d",
-      "stream_name": "smoketest"
+      "stream_id": "a0f0a6db-5d1f-451d-a21d-048df7d5083c",
+      "stream_name": "dsasd"
     }
   },
   {
     "targets": [
-      "vector-worker-4ba301001829:9100"
+      "vector-worker-df25ef1e0ecb:9100"
     ],
     "labels": {
-      "stream_id": "4ba30100-1829-4617-8bbf-7ef3c8389f73",
-      "stream_name": "another stream"
+      "stream_id": "df25ef1e-0ecb-48db-a6ca-5b9987c53f1d",
+      "stream_name": "sdfsdfsd"
     }
   },
   {
     "targets": [
-      "vector-worker-34574dca3d71:9100"
+      "vector-worker-1e48d34021dd:9100"
     ],
     "labels": {
-      "stream_id": "34574dca-3d71-4a3a-959c-67b51240e240",
-      "stream_name": "something else motion trail"
+      "stream_id": "1e48d340-21dd-466e-b805-49d2b23b21bb",
+      "stream_name": "aaaaaaaaa"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-9c7ad1d7c6df:9100"
+    ],
+    "labels": {
+      "stream_id": "9c7ad1d7-c6df-4b50-b3a2-2d306ff7f86b",
+      "stream_name": "aasdfsdfdf"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-47dcc8420ccc:9100"
+    ],
+    "labels": {
+      "stream_id": "47dcc842-0ccc-461d-969a-6c0faca0e53f",
+      "stream_name": "sdfsdfsdfaaa"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-cfdbfe2f9665:9100"
+    ],
+    "labels": {
+      "stream_id": "cfdbfe2f-9665-42ef-9fb5-fb248adbc674",
+      "stream_name": "werwerwer"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-9b46d796400c:9100"
+    ],
+    "labels": {
+      "stream_id": "9b46d796-400c-4929-997a-aea147d24cdb",
+      "stream_name": "fsdfwefewf"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-a429a1ada572:9100"
+    ],
+    "labels": {
+      "stream_id": "a429a1ad-a572-4771-badf-e5598d3568e4",
+      "stream_name": "wewe"
     }
   }
 ]

@@ -12,9 +12,16 @@ from sqlalchemy.orm import Session
 
 from .database import Base, SessionLocal, engine, get_db
 from .frame_broker import FrameBroker
-from .models import CameraStream
+from .models import CameraStream, SystemSettings
 from .orchestrator import WorkerOrchestrator
-from .schemas import MessageResponse, StreamCreate, StreamRead, StreamUpdate
+from .schemas import (
+    MessageResponse,
+    StreamCreate,
+    StreamRead,
+    StreamUpdate,
+    SystemSettingsRead,
+    SystemSettingsUpdate,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -76,6 +83,30 @@ SCHEMA_PATCHES = [
     "ALTER TABLE camera_streams ALTER COLUMN show_arrows SET NOT NULL",
     "ALTER TABLE camera_streams ALTER COLUMN show_magnitude SET NOT NULL",
     "ALTER TABLE camera_streams ALTER COLUMN show_trails SET NOT NULL",
+    "CREATE TABLE IF NOT EXISTS system_settings ("
+    "id INTEGER PRIMARY KEY, "
+    "live_preview_fps DOUBLE PRECISION NOT NULL DEFAULT 6.0, "
+    "live_preview_jpeg_quality INTEGER NOT NULL DEFAULT 65, "
+    "live_preview_max_width INTEGER NOT NULL DEFAULT 960, "
+    "updated_at TIMESTAMP NOT NULL DEFAULT NOW())",
+    "ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS live_preview_fps DOUBLE PRECISION",
+    "ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS live_preview_jpeg_quality INTEGER",
+    "ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS live_preview_max_width INTEGER",
+    "ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
+    "UPDATE system_settings SET live_preview_fps = 6.0 WHERE live_preview_fps IS NULL",
+    "UPDATE system_settings SET live_preview_jpeg_quality = 65 WHERE live_preview_jpeg_quality IS NULL",
+    "UPDATE system_settings SET live_preview_max_width = 960 WHERE live_preview_max_width IS NULL",
+    "UPDATE system_settings SET updated_at = NOW() WHERE updated_at IS NULL",
+    "INSERT INTO system_settings (id, live_preview_fps, live_preview_jpeg_quality, live_preview_max_width, updated_at) "
+    "VALUES (1, 6.0, 65, 960, NOW()) ON CONFLICT (id) DO NOTHING",
+    "ALTER TABLE system_settings ALTER COLUMN live_preview_fps SET DEFAULT 6.0",
+    "ALTER TABLE system_settings ALTER COLUMN live_preview_jpeg_quality SET DEFAULT 65",
+    "ALTER TABLE system_settings ALTER COLUMN live_preview_max_width SET DEFAULT 960",
+    "ALTER TABLE system_settings ALTER COLUMN updated_at SET DEFAULT NOW()",
+    "ALTER TABLE system_settings ALTER COLUMN live_preview_fps SET NOT NULL",
+    "ALTER TABLE system_settings ALTER COLUMN live_preview_jpeg_quality SET NOT NULL",
+    "ALTER TABLE system_settings ALTER COLUMN live_preview_max_width SET NOT NULL",
+    "ALTER TABLE system_settings ALTER COLUMN updated_at SET NOT NULL",
 ]
 
 
@@ -83,6 +114,23 @@ def apply_schema_patches() -> None:
     with engine.begin() as connection:
         for statement in SCHEMA_PATCHES:
             connection.execute(text(statement))
+
+
+def get_or_create_system_settings(db: Session) -> SystemSettings:
+    settings = db.get(SystemSettings, 1)
+    if settings is not None:
+        return settings
+
+    settings = SystemSettings(
+        id=1,
+        live_preview_fps=6.0,
+        live_preview_jpeg_quality=65,
+        live_preview_max_width=960,
+    )
+    db.add(settings)
+    db.commit()
+    db.refresh(settings)
+    return settings
 
 
 @asynccontextmanager
@@ -93,6 +141,8 @@ async def lifespan(_: FastAPI):
     db = SessionLocal()
     try:
         orchestrator.reconcile(db)
+        settings = get_or_create_system_settings(db)
+        frame_broker.set_frame_rate_limit(settings.live_preview_fps)
     finally:
         db.close()
 
@@ -171,6 +221,31 @@ def serialize_stream(stream: CameraStream) -> StreamRead:
     )
 
 
+def serialize_system_settings(settings: SystemSettings) -> SystemSettingsRead:
+    return SystemSettingsRead(
+        id=settings.id,
+        live_preview_fps=settings.live_preview_fps,
+        live_preview_jpeg_quality=settings.live_preview_jpeg_quality,
+        live_preview_max_width=settings.live_preview_max_width,
+        updated_at=settings.updated_at,
+    )
+
+
+def restart_active_workers(db: Session) -> list[str]:
+    errors: list[str] = []
+    active_streams = db.query(CameraStream).filter(CameraStream.is_active.is_(True)).all()
+    for stream in active_streams:
+        try:
+            orchestrator.stop_worker(db, stream, deactivate=False)
+            orchestrator.start_worker(db, stream)
+            db.commit()
+            db.refresh(stream)
+        except Exception as exc:
+            db.rollback()
+            errors.append(f"{stream.name}: {exc}")
+    return errors
+
+
 @app.get("/health")
 def healthcheck() -> dict:
     return {"status": "ok"}
@@ -180,6 +255,47 @@ def healthcheck() -> dict:
 def list_streams(db: Session = Depends(get_db)) -> List[StreamRead]:
     streams = db.query(CameraStream).order_by(CameraStream.created_at.desc()).all()
     return [serialize_stream(stream) for stream in streams]
+
+
+@app.get("/settings/system", response_model=SystemSettingsRead)
+def get_system_settings(db: Session = Depends(get_db)) -> SystemSettingsRead:
+    settings = get_or_create_system_settings(db)
+    frame_broker.set_frame_rate_limit(settings.live_preview_fps)
+    return serialize_system_settings(settings)
+
+
+@app.put("/settings/system", response_model=SystemSettingsRead)
+def update_system_settings(payload: SystemSettingsUpdate, db: Session = Depends(get_db)) -> SystemSettingsRead:
+    settings = get_or_create_system_settings(db)
+
+    changed = False
+    for field in ("live_preview_fps", "live_preview_jpeg_quality", "live_preview_max_width"):
+        value = getattr(payload, field)
+        if value is None:
+            continue
+        if getattr(settings, field) != value:
+            setattr(settings, field, value)
+            changed = True
+
+    if changed:
+        db.add(settings)
+        db.commit()
+        db.refresh(settings)
+
+    frame_broker.set_frame_rate_limit(settings.live_preview_fps)
+
+    if payload.restart_workers and (changed or payload.live_preview_fps is not None or payload.live_preview_jpeg_quality is not None or payload.live_preview_max_width is not None):
+        restart_errors = restart_active_workers(db)
+        if restart_errors:
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "message": "Settings saved but some workers failed to restart.",
+                    "errors": restart_errors,
+                },
+            )
+
+    return serialize_system_settings(settings)
 
 
 @app.post("/streams", response_model=StreamRead, status_code=201)

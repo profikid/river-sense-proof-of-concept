@@ -56,3 +56,23 @@ class StreamRead(StreamBase):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+class SystemSettingsBase(BaseModel):
+    live_preview_fps: float = Field(default=6.0, ge=0.5, le=30.0)
+    live_preview_jpeg_quality: int = Field(default=65, ge=30, le=95)
+    live_preview_max_width: int = Field(default=960, ge=0, le=1920)
+
+
+class SystemSettingsUpdate(BaseModel):
+    live_preview_fps: Optional[float] = Field(default=None, ge=0.5, le=30.0)
+    live_preview_jpeg_quality: Optional[int] = Field(default=None, ge=30, le=95)
+    live_preview_max_width: Optional[int] = Field(default=None, ge=0, le=1920)
+    restart_workers: bool = True
+
+
+class SystemSettingsRead(SystemSettingsBase):
+    id: int
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)

@@ -154,11 +154,11 @@
   },
   {
     "targets": [
-      "vector-worker-df25ef1e0ecb:9100"
+      "vector-worker-d3db111e67b3:9100"
     ],
     "labels": {
-      "stream_id": "df25ef1e-0ecb-48db-a6ca-5b9987c53f1d",
-      "stream_name": "sdfsdfsd"
+      "stream_id": "d3db111e-67b3-46ee-93d7-fd285eddd75d",
+      "stream_name": "smoketest"
     }
   },
   {
@@ -168,6 +168,15 @@
     "labels": {
       "stream_id": "1e48d340-21dd-466e-b805-49d2b23b21bb",
       "stream_name": "aaaaaaaaa"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-df25ef1e0ecb:9100"
+    ],
+    "labels": {
+      "stream_id": "df25ef1e-0ecb-48db-a6ca-5b9987c53f1d",
+      "stream_name": "sdfsdfsd"
     }
   },
   {

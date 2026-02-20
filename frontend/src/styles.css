@@ -321,6 +321,18 @@ input:focus {
   color: var(--muted);
 }
 
+.section-title-row {
+  margin-top: 0.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.section-title-row h2 {
+  margin: 0;
+}
+
 .stream-list {
   display: grid;
   gap: 0.5rem;

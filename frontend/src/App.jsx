@@ -166,14 +166,6 @@ function buildLocation(view, selectedStreamId, dashboardRange) {
   return `${pathname}${query ? `?${query}` : ""}`;
 }
 
-function firstConnectedStreamId(streams) {
-  const connected = streams.find((stream) => {
-    const status = String(stream.connection_status || "").toLowerCase();
-    return status === "connected" || status === "ok";
-  });
-  return connected?.id || null;
-}
-
 function streamToForm(stream) {
   return {
     name: stream.name ?? "",
@@ -422,22 +414,12 @@ export default function App() {
     setStreams(data);
 
     setSelectedStreamId((currentSelectedId) => {
-      const locationView = parseLocationState().view;
       if (!currentSelectedId || data.length === 0) {
-        if (data.length === 0) {
-          return null;
-        }
-        if (locationView === "config") {
-          return firstConnectedStreamId(data);
-        }
         return null;
       }
       const stillExists = data.some((stream) => stream.id === currentSelectedId);
       if (stillExists) {
         return currentSelectedId;
-      }
-      if (locationView === "config") {
-        return firstConnectedStreamId(data);
       }
       return null;
     });
@@ -523,6 +505,32 @@ export default function App() {
       return changed ? next : current;
     });
   }, [streams]);
+
+  useEffect(() => {
+    if (currentView !== "config") {
+      return;
+    }
+
+    if (!selectedStreamId) {
+      if (editingId !== null) {
+        setEditingId(null);
+        setForm(DEFAULT_FORM);
+      }
+      return;
+    }
+
+    if (editingId === selectedStreamId) {
+      return;
+    }
+
+    const stream = streams.find((entry) => entry.id === selectedStreamId);
+    if (!stream) {
+      return;
+    }
+
+    setEditingId(stream.id);
+    setForm(streamToForm(stream));
+  }, [currentView, selectedStreamId, streams, editingId]);
 
   useEffect(() => {
     const needsConfigSocket = currentView === "config";
@@ -728,17 +736,16 @@ export default function App() {
     }
   };
 
-  const handleEdit = (stream) => {
+  const handleSelectStream = (stream) => {
     setSelectedStreamId(stream.id);
     setEditingId(stream.id);
     setForm(streamToForm(stream));
   };
 
-  const handleTuneSelected = () => {
-    if (!selectedStream) {
-      return;
-    }
-    handleEdit(selectedStream);
+  const handleClearStreamSelection = () => {
+    setSelectedStreamId(null);
+    setEditingId(null);
+    setForm(DEFAULT_FORM);
   };
 
   const handleSliderChange = (key, value) => {
@@ -791,9 +798,7 @@ export default function App() {
   };
 
   const handleEditFromLive = (stream) => {
-    setSelectedStreamId(stream.id);
-    setEditingId(stream.id);
-    setForm(streamToForm(stream));
+    handleSelectStream(stream);
     const nextLocation = buildLocation("config", stream.id, dashboardRange);
     window.history.pushState(null, "", nextLocation);
     setCurrentView("config");
@@ -1113,7 +1118,7 @@ export default function App() {
       </header>
 
       {currentView === "config" ? (
-        <main className="app-grid">
+        <main className={`app-grid ${selectedStream ? "" : "dashboard-only"}`.trim()}>
           <section className="panel controls-panel">
             <h2>{editingId ? "Tune Stream Config" : "Add Stream"}</h2>
 
@@ -1289,7 +1294,17 @@ export default function App() {
             {notice && <p className="notice">{notice}</p>}
             {error && <p className="error">{error}</p>}
 
-            <h2>Stream Fleet</h2>
+            <div className="section-title-row">
+              <h2>Stream Fleet</h2>
+              <button
+                type="button"
+                className="btn tiny ghost"
+                disabled={!selectedStream}
+                onClick={handleClearStreamSelection}
+              >
+                Clear Selection
+              </button>
+            </div>
             <div className="stream-list">
               {streams.length === 0 && <p className="muted">No streams configured yet.</p>}
               {streams.map((stream) => (
@@ -1300,7 +1315,7 @@ export default function App() {
                   <button
                     type="button"
                     className="stream-title"
-                    onClick={() => setSelectedStreamId(stream.id)}
+                    onClick={() => handleSelectStream(stream)}
                   >
                     <span>{stream.name}</span>
                     <span className={`status ${statusClass(stream)}`}>
@@ -1325,9 +1340,6 @@ export default function App() {
                   {stream.last_error && <p className="stream-error">{stream.last_error}</p>}
 
                   <div className="row actions">
-                    <button disabled={busy} className="btn tiny" onClick={() => handleEdit(stream)}>
-                      Edit
-                    </button>
                     <button
                       disabled={busy}
                       className="btn tiny"
@@ -1348,81 +1360,64 @@ export default function App() {
             </div>
           </section>
 
-          <section className="panel viewport-panel">
-            <h2>Live Preview</h2>
-            <p className="muted">
-              {selectedStream
-                ? `Selected: ${selectedStream.name}`
-                : "Select a stream to view its live frame feed."}
-            </p>
-            {selectedStream && (
+          {selectedStream && (
+            <section className="panel viewport-panel">
+              <h2>Live Preview</h2>
+              <p className="muted">Selected: {selectedStream.name}</p>
               <p className={`connection-badge ${statusClass(selectedStream)}`}>
                 Connection: {statusLabel(selectedStream)}
                 {selectedStream.last_error ? ` - ${selectedStream.last_error}` : ""}
               </p>
-            )}
 
-            <div className="row">
-              <button
-                type="button"
-                className="btn tiny"
-                disabled={!selectedStream || busy}
-                onClick={handleTuneSelected}
-              >
-                Tune Selected Stream
-              </button>
-            </div>
+              <div className="canvas-shell">
+                <canvas ref={canvasRef} className="preview-canvas" />
+              </div>
 
-            <div className="canvas-shell">
-              <canvas ref={canvasRef} className="preview-canvas" />
-            </div>
-
-            <div className="stats-grid">
-              <div>
-                <span className="label">FPS</span>
-                <strong>{latestStats.fps}</strong>
-              </div>
-              <div>
-                <span className="label">AVG MAG</span>
-                <strong>{latestStats.avg}</strong>
-              </div>
-              <div>
-                <span className="label">MAX MAG</span>
-                <strong>{latestStats.max}</strong>
-              </div>
-              <div>
-                <span className="label">VECTORS</span>
-                <strong>{latestStats.vectors}</strong>
-              </div>
-            </div>
-
-            <section className="worker-log-section">
-              <div className="worker-log-header">
-                <h3>Worker Activity Log</h3>
-                <div className="worker-log-meta">
-                  <span className={`status ${workerLogStatus}`}>{workerLogStatus}</span>
-                  {workerLogContainer && (
-                    <span className="worker-log-container">{workerLogContainer}</span>
-                  )}
-                  {workerLogUpdatedAt && (
-                    <span className="muted">
-                      Updated {new Date(workerLogUpdatedAt).toLocaleTimeString()}
-                    </span>
-                  )}
+              <div className="stats-grid">
+                <div>
+                  <span className="label">FPS</span>
+                  <strong>{latestStats.fps}</strong>
+                </div>
+                <div>
+                  <span className="label">AVG MAG</span>
+                  <strong>{latestStats.avg}</strong>
+                </div>
+                <div>
+                  <span className="label">MAX MAG</span>
+                  <strong>{latestStats.max}</strong>
+                </div>
+                <div>
+                  <span className="label">VECTORS</span>
+                  <strong>{latestStats.vectors}</strong>
                 </div>
               </div>
 
-              {workerLogLoading && <p className="muted">Loading worker logs...</p>}
-              {workerLogError && <p className="error">{workerLogError}</p>}
-              {!selectedStream ? (
-                <p className="muted">Select a stream to inspect worker activity.</p>
-              ) : workerLogs.length === 0 ? (
-                <p className="muted">No worker log lines available for this stream.</p>
-              ) : (
-                <pre className="worker-log-output">{workerLogs.join("\n")}</pre>
-              )}
+              <section className="worker-log-section">
+                <div className="worker-log-header">
+                  <h3>Worker Activity Log</h3>
+                  <div className="worker-log-meta">
+                    <span className={`status ${workerLogStatus}`}>{workerLogStatus}</span>
+                    {workerLogContainer && (
+                      <span className="worker-log-container">{workerLogContainer}</span>
+                    )}
+                    {workerLogUpdatedAt && (
+                      <span className="muted">
+                        Updated {new Date(workerLogUpdatedAt).toLocaleTimeString()}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {workerLogLoading && <p className="muted">Loading worker logs...</p>}
+                {workerLogError && <p className="error">{workerLogError}</p>}
+                {workerLogs.length === 0 ? (
+                  <p className="muted">No worker log lines available for this stream.</p>
+                ) : (
+                  <pre className="worker-log-output">{workerLogs.join("\n")}</pre>
+                )}
+              </section>
             </section>
-          </section>
+          )}
         </main>
       ) : currentView === "live" ? (
         <main className="app-grid dashboard-only">

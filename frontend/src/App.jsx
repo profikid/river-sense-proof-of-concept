@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CircleMarker, MapContainer, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
 
 const API_BASE = normalizeHttpBase(import.meta.env.VITE_API_URL || "http://localhost:8000");
 const WS_BASE = toWsBase(API_BASE);
@@ -23,6 +25,8 @@ const DEFAULT_FORM = {
   name: "",
   rtsp_url:
     "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+  latitude: "",
+  longitude: "",
   ...DEFAULT_STREAM_CONFIG,
   is_active: false,
 };
@@ -98,6 +102,10 @@ const LIVE_LAYOUT_OPTIONS = [
   { value: "list", label: "List" },
 ];
 
+const MAP_DEFAULT_CENTER = [37.0902, -95.7129];
+const MAP_DEFAULT_ZOOM = 4;
+const MAP_SELECTED_ZOOM = 13;
+
 function normalizeDashboardRange(value) {
   const candidate = String(value || "").trim();
   if (!candidate) {
@@ -170,6 +178,14 @@ function streamToForm(stream) {
   return {
     name: stream.name ?? "",
     rtsp_url: stream.rtsp_url ?? "",
+    latitude:
+      Number.isFinite(Number(stream.latitude)) && stream.latitude !== null
+        ? Number(stream.latitude).toFixed(6)
+        : "",
+    longitude:
+      Number.isFinite(Number(stream.longitude)) && stream.longitude !== null
+        ? Number(stream.longitude).toFixed(6)
+        : "",
     is_active: !!stream.is_active,
     grid_size: stream.grid_size ?? DEFAULT_STREAM_CONFIG.grid_size,
     win_radius: stream.win_radius ?? DEFAULT_STREAM_CONFIG.win_radius,
@@ -184,10 +200,27 @@ function streamToForm(stream) {
   };
 }
 
+function parseOptionalCoordinate(value, min, max) {
+  const raw = String(value ?? "").trim();
+  if (!raw) {
+    return null;
+  }
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+  if (numeric < min || numeric > max) {
+    return null;
+  }
+  return Number(numeric.toFixed(6));
+}
+
 function buildPayload(form) {
   return {
     name: form.name.trim(),
     rtsp_url: form.rtsp_url.trim(),
+    latitude: parseOptionalCoordinate(form.latitude, -90, 90),
+    longitude: parseOptionalCoordinate(form.longitude, -180, 180),
     is_active: !!form.is_active,
     grid_size: Number(form.grid_size),
     win_radius: Number(form.win_radius),
@@ -263,6 +296,29 @@ async function apiRequest(path, options = {}) {
   return null;
 }
 
+function StreamMapClickCapture({ onPick }) {
+  useMapEvents({
+    click(event) {
+      onPick(event.latlng.lat, event.latlng.lng);
+    },
+  });
+  return null;
+}
+
+function StreamMapCenter({ latitude, longitude }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      map.setView(MAP_DEFAULT_CENTER, MAP_DEFAULT_ZOOM);
+      return;
+    }
+    map.setView([latitude, longitude], Math.max(map.getZoom(), MAP_SELECTED_ZOOM));
+  }, [map, latitude, longitude]);
+
+  return null;
+}
+
 export default function App() {
   const initialLocation = parseLocationState();
   const [streams, setStreams] = useState([]);
@@ -300,6 +356,19 @@ export default function App() {
     () => streams.find((stream) => stream.id === selectedStreamId) || null,
     [selectedStreamId, streams]
   );
+  const formLatitude = useMemo(
+    () => parseOptionalCoordinate(form.latitude, -90, 90),
+    [form.latitude]
+  );
+  const formLongitude = useMemo(
+    () => parseOptionalCoordinate(form.longitude, -180, 180),
+    [form.longitude]
+  );
+  const hasFormCoordinates = formLatitude !== null && formLongitude !== null;
+  const mapCenter = hasFormCoordinates
+    ? [formLatitude, formLongitude]
+    : MAP_DEFAULT_CENTER;
+  const mapZoom = hasFormCoordinates ? MAP_SELECTED_ZOOM : MAP_DEFAULT_ZOOM;
 
   const liveFrameCount = useMemo(
     () => Object.keys(liveFramesByStream).length,
@@ -1069,6 +1138,86 @@ export default function App() {
               </label>
 
               <div className="config-section">
+                <h3>Location</h3>
+                <div className="row two-col">
+                  <label>
+                    Latitude
+                    <input
+                      type="number"
+                      step="0.000001"
+                      min="-90"
+                      max="90"
+                      value={form.latitude}
+                      placeholder="37.774900"
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, latitude: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    Longitude
+                    <input
+                      type="number"
+                      step="0.000001"
+                      min="-180"
+                      max="180"
+                      value={form.longitude}
+                      placeholder="-122.419400"
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, longitude: event.target.value }))
+                      }
+                    />
+                  </label>
+                </div>
+                <div className="row map-row">
+                  <button
+                    type="button"
+                    className="btn tiny ghost"
+                    onClick={() =>
+                      setForm((current) => ({
+                        ...current,
+                        latitude: "",
+                        longitude: "",
+                      }))
+                    }
+                  >
+                    Clear Coordinates
+                  </button>
+                  <span className="muted">Zoom and click on the map to set stream coordinates.</span>
+                </div>
+                <div className="stream-map-picker">
+                  <MapContainer
+                    center={mapCenter}
+                    zoom={mapZoom}
+                    scrollWheelZoom
+                    className="stream-map-canvas"
+                  >
+                    <TileLayer
+                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    />
+                    <StreamMapClickCapture
+                      onPick={(latitude, longitude) =>
+                        setForm((current) => ({
+                          ...current,
+                          latitude: latitude.toFixed(6),
+                          longitude: longitude.toFixed(6),
+                        }))
+                      }
+                    />
+                    <StreamMapCenter latitude={formLatitude} longitude={formLongitude} />
+                    {hasFormCoordinates && (
+                      <CircleMarker
+                        center={[formLatitude, formLongitude]}
+                        radius={8}
+                        pathOptions={{ color: "#16f2b3", fillColor: "#16f2b3", fillOpacity: 0.8 }}
+                      />
+                    )}
+                  </MapContainer>
+                </div>
+              </div>
+
+              <div className="config-section">
                 <h3>Layers</h3>
                 <div className="toggle-grid">
                   {TOGGLE_FIELDS.map((field) => (
@@ -1164,6 +1313,14 @@ export default function App() {
                     <span>Win {stream.win_radius}</span>
                     <span>Thr {stream.threshold}</span>
                     <span>Worker {stream.worker_status}</span>
+                    <span>
+                      {stream.latitude !== null &&
+                      stream.longitude !== null &&
+                      Number.isFinite(Number(stream.latitude)) &&
+                      Number.isFinite(Number(stream.longitude))
+                        ? `Lat ${toFixedValue(stream.latitude, 4)} · Lon ${toFixedValue(stream.longitude, 4)}`
+                        : "Location unset"}
+                    </span>
                   </div>
                   {stream.last_error && <p className="stream-error">{stream.last_error}</p>}
 

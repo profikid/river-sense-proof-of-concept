@@ -5,7 +5,7 @@ End-to-end implementation of a multi-stream optical-flow platform:
 - **Per-stream worker containers** process RTSP/video feeds with **Lucas-Kanade optical flow** (OpenCV + NumPy).
 - **FastAPI backend** manages stream CRUD and orchestrates worker lifecycle through Docker.
 - **Prometheus + Grafana** collect and visualize time-series metrics.
-- **React frontend** manages the camera fleet, previews live frames on canvas, and embeds Grafana dashboards.
+- **React frontend** manages the camera fleet, supports map-based stream geolocation, previews live frames on canvas, and embeds Grafana dashboards.
 - **Redis Pub/Sub** distributes live frame payloads from workers to the dashboard in near real-time.
 - **Stream health validation** surfaces connection failures in the UI with per-stream error messages.
 
@@ -41,7 +41,7 @@ graph TD
 
 - **Worker**: Python, OpenCV, NumPy, Prometheus client, Redis client
 - **API**: FastAPI, SQLAlchemy, Docker SDK for Python, PostgreSQL, Redis, Prometheus client
-- **Frontend**: React + Vite + Canvas
+- **Frontend**: React + Vite + Canvas + Leaflet (map picker)
 - **Infra**: Docker Compose, PostgreSQL, Redis, Prometheus, Grafana, Nginx
 
 ## Repository Layout
@@ -107,6 +107,8 @@ curl -X POST http://localhost:8000/streams \
   -d '{
     "name": "Demo Feed",
     "rtsp_url": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+    "latitude": 37.7749,
+    "longitude": -122.4194,
     "grid_size": 16,
     "win_radius": 8,
     "threshold": 1.2,
@@ -128,8 +130,9 @@ When activated, the API spins up a dedicated worker container and updates Promet
 1. Create stream with URL.
 2. Select stream in the fleet list and view live preview.
 3. Click **Tune Selected Stream**.
-4. Adjust controls (`show_feed`, `show_arrows`, `show_magnitude`, `show_trails`, `grid_size`, `win_radius`, `threshold`, `arrow_scale`, `arrow_opacity`, `gradient_intensity`).
-5. Save config.
+4. Set stream location by zooming/clicking the map (or entering `latitude`/`longitude` manually).
+5. Adjust controls (`show_feed`, `show_arrows`, `show_magnitude`, `show_trails`, `grid_size`, `win_radius`, `threshold`, `arrow_scale`, `arrow_opacity`, `gradient_intensity`).
+6. Save config.
 
 If the stream is active, saving config restarts its worker with the new settings so processing + Grafana metrics use the updated values.
 
@@ -175,6 +178,7 @@ OpenAPI docs:
 - `id` UUID primary key
 - `name` stream display name
 - `rtsp_url` source URL
+- `latitude`, `longitude` optional stream location coordinates
 - `grid_size` sampling grid size
 - `win_radius` LK window radius
 - `threshold` flow magnitude threshold
@@ -207,6 +211,8 @@ Workers expose these gauges/counters:
 - `vector_flow_stream_connected`
 - `vector_flow_direction_degrees`
 - `vector_flow_direction_coherence`
+- `vector_flow_stream_location`
+- `vector_flow_vector_count_geo`
 - `vector_flow_worker_memory_rss_bytes`
 - `vector_flow_worker_memory_percent`
 - `vector_flow_gpu_available`
@@ -230,7 +236,7 @@ Grafana is auto-provisioned with:
 - Alert rule group: **vector-flow-alerts** (provisioned from `grafana/provisioning/alerting/alert_rules.yml`)
 
 The frontend embeds this dashboard and passes the selected stream via `var-stream_name`.
-Dashboard panels include optical-flow metrics, per-stream vector direction/coherence, worker memory/GPU observability, a running-stream count stat, and a fleet state pie chart (`running`, `deactivated`, `error`).
+Dashboard panels include optical-flow metrics, per-stream vector direction/coherence, worker memory/GPU observability, a running-stream count stat, a fleet state pie chart (`running`, `deactivated`, `error`), and a Geomap panel with stream points + vector-count heatmap layers.
 
 Frontend routes:
 

@@ -160,6 +160,8 @@ class WorkerOrchestrator:
             "STREAM_ID": str(stream.id),
             "STREAM_NAME": stream.name,
             "RTSP_URL": stream.rtsp_url,
+            "LATITUDE": "" if stream.latitude is None else f"{float(stream.latitude):.6f}",
+            "LONGITUDE": "" if stream.longitude is None else f"{float(stream.longitude):.6f}",
             "GRID_SIZE": str(stream.grid_size),
             "WIN_RADIUS": str(stream.win_radius),
             "THRESHOLD": str(stream.threshold),

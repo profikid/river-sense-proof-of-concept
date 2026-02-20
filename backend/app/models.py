@@ -12,6 +12,8 @@ class CameraStream(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     rtsp_url = Column(Text, nullable=False)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
     grid_size = Column(Integer, nullable=False, default=16)
     win_radius = Column(Integer, nullable=False, default=8)
     threshold = Column(Float, nullable=False, default=1.2)

@@ -1304,6 +1304,163 @@
       ],
       "title": "Vector Direction Coherence",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-YlOrRd"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 37
+      },
+      "id": 18,
+      "options": {
+        "basemap": {
+          "config": {},
+          "name": "Layer 0",
+          "type": "default"
+        },
+        "controls": {
+          "mouseWheelZoom": true,
+          "showAttribution": true,
+          "showDebug": false,
+          "showMeasure": false,
+          "showScale": false,
+          "showZoom": true
+        },
+        "layers": [
+          {
+            "config": {
+              "showLegend": true,
+              "style": {
+                "color": {
+                  "fixed": "dark-green"
+                },
+                "opacity": 0.9,
+                "rotation": {
+                  "fixed": 0,
+                  "max": 360,
+                  "min": -360,
+                  "mode": "mod"
+                },
+                "size": {
+                  "fixed": 10,
+                  "max": 20,
+                  "min": 5
+                },
+                "symbol": {
+                  "fixed": "img/icons/marker/circle.svg",
+                  "mode": "fixed"
+                },
+                "symbolAlign": {
+                  "horizontal": "center",
+                  "vertical": "center"
+                },
+                "textConfig": {
+                  "fontSize": 12,
+                  "offsetX": 0,
+                  "offsetY": 0,
+                  "textAlign": "center",
+                  "textBaseline": "middle"
+                }
+              }
+            },
+            "filterData": {
+              "id": "byRefId",
+              "options": "A"
+            },
+            "location": {
+              "latitude": "latitude",
+              "longitude": "longitude",
+              "mode": "coords"
+            },
+            "name": "Stream Points",
+            "tooltip": true,
+            "type": "markers"
+          },
+          {
+            "config": {
+              "blur": 15,
+              "opacity": 0.7,
+              "radius": 22,
+              "weight": {
+                "field": "Value",
+                "fixed": 1,
+                "max": 200,
+                "min": 1
+              }
+            },
+            "filterData": {
+              "id": "byRefId",
+              "options": "B"
+            },
+            "location": {
+              "latitude": "latitude",
+              "longitude": "longitude",
+              "mode": "coords"
+            },
+            "name": "Vector Heatmap",
+            "tooltip": true,
+            "type": "heatmap"
+          }
+        ],
+        "tooltip": {
+          "mode": "details"
+        },
+        "view": {
+          "allLayers": true,
+          "id": "fit",
+          "lastOnly": false,
+          "layer": "Stream Points",
+          "lat": 37.0902,
+          "lon": -95.7129,
+          "zoom": 4
+        }
+      },
+      "pluginVersion": "11.2.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "vector_flow_stream_location{stream_name=~\"$stream_name\"}",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "{{stream_name}}",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "vector_flow_vector_count_geo{stream_name=~\"$stream_name\"}",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "{{stream_name}}",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "Stream Geomap",
+      "type": "geomap"
     }
   ],
   "refresh": "5s",

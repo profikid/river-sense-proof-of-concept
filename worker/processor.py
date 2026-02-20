@@ -67,6 +67,16 @@ VECTOR_DIRECTION_COHERENCE = Gauge(
     "Direction coherence from 0-1 where 1 means vectors align to one direction",
     ["stream_id", "stream_name"],
 )
+STREAM_LOCATION = Gauge(
+    "vector_flow_stream_location",
+    "Static stream geolocation marker (1=available)",
+    ["stream_id", "stream_name", "latitude", "longitude"],
+)
+VECTOR_COUNT_GEO = Gauge(
+    "vector_flow_vector_count_geo",
+    "Vector count at stream geolocation for geomap heat layers",
+    ["stream_id", "stream_name", "latitude", "longitude"],
+)
 
 
 def env_bool(name: str, default: bool) -> bool:
@@ -78,6 +88,27 @@ def env_bool(name: str, default: bool) -> bool:
 
 def clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
+
+
+def env_optional_float(name: str, low: float, high: float) -> Optional[float]:
+    raw = os.getenv(name)
+    if raw is None:
+        return None
+
+    cleaned = raw.strip()
+    if not cleaned:
+        return None
+
+    try:
+        value = float(cleaned)
+    except ValueError:
+        return None
+
+    if not math.isfinite(value):
+        return None
+    if value < low or value > high:
+        return None
+    return value
 
 
 @dataclass
@@ -94,6 +125,8 @@ class FlowProcessor:
         self.stream_id = os.getenv("STREAM_ID", "unknown")
         self.stream_name = os.getenv("STREAM_NAME", "unnamed-stream")
         self.rtsp_url = os.getenv("RTSP_URL", "")
+        self.latitude = env_optional_float("LATITUDE", -90.0, 90.0)
+        self.longitude = env_optional_float("LONGITUDE", -180.0, 180.0)
 
         self.grid_size = int(clamp(float(os.getenv("GRID_SIZE", "16")), 4.0, 128.0))
         self.win_radius = int(clamp(float(os.getenv("WIN_RADIUS", "8")), 2.0, 32.0))
@@ -172,7 +205,26 @@ class FlowProcessor:
         self.metric_gpu_mem_total = GPU_MEMORY_TOTAL.labels(**labels)
         self.metric_direction_deg = VECTOR_DIRECTION_DEGREES.labels(**labels)
         self.metric_direction_coherence = VECTOR_DIRECTION_COHERENCE.labels(**labels)
+        self.metric_stream_location = None
+        self.metric_vectors_geo = None
         self.last_direction_deg = 0.0
+
+        if self.latitude is not None and self.longitude is not None:
+            geo_labels = {
+                "stream_id": self.stream_id,
+                "stream_name": self.stream_name,
+                "latitude": f"{self.latitude:.6f}",
+                "longitude": f"{self.longitude:.6f}",
+            }
+            self.metric_stream_location = STREAM_LOCATION.labels(**geo_labels)
+            self.metric_vectors_geo = VECTOR_COUNT_GEO.labels(**geo_labels)
+            self.metric_stream_location.set(1.0)
+            self.metric_vectors_geo.set(0.0)
+        else:
+            logger.info(
+                "No valid coordinates configured for %s. Geomap metrics disabled for this stream.",
+                self.stream_name,
+            )
 
         self._init_gpu_metrics()
         self.metric_direction_deg.set(0.0)
@@ -183,7 +235,8 @@ class FlowProcessor:
                 "Worker configuration loaded: grid=%s win_radius=%s threshold=%.3f "
                 "arrow_scale=%.2f arrow_opacity=%.1f gradient_intensity=%.2f "
                 "show_feed=%s show_arrows=%s show_magnitude=%s show_trails=%s "
-                "preview_fps=%.1f preview_jpeg_quality=%s preview_max_width=%s"
+                "preview_fps=%.1f preview_jpeg_quality=%s preview_max_width=%s "
+                "latitude=%s longitude=%s"
             ),
             self.grid_size,
             self.win_radius,
@@ -198,6 +251,8 @@ class FlowProcessor:
             self.live_preview_fps,
             self.live_preview_jpeg_quality,
             self.live_preview_max_width,
+            self.latitude,
+            self.longitude,
         )
 
     @staticmethod
@@ -612,6 +667,8 @@ class FlowProcessor:
         self.metric_avg.set(avg_mag)
         self.metric_max.set(max_mag)
         self.metric_vectors.set(count)
+        if self.metric_vectors_geo is not None:
+            self.metric_vectors_geo.set(float(count))
         self.metric_fps.set(fps)
         self.metric_direction_deg.set(direction_deg)
         self.metric_direction_coherence.set(direction_coherence)
@@ -643,6 +700,8 @@ class FlowProcessor:
                 if not ok or frame is None:
                     if self.rtsp_url.lower().startswith("rtsp://"):
                         self.metric_connected.set(0)
+                        if self.metric_vectors_geo is not None:
+                            self.metric_vectors_geo.set(0.0)
                         self._publish_status(
                             "error",
                             error="Stream read failed. Reconnecting to source.",

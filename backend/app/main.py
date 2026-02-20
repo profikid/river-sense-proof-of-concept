@@ -51,6 +51,8 @@ streams_by_state_metric = Gauge(
 )
 
 SCHEMA_PATCHES = [
+    "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION",
+    "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION",
     "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS win_radius INTEGER",
     "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS arrow_scale DOUBLE PRECISION",
     "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS arrow_opacity DOUBLE PRECISION",
@@ -200,6 +202,8 @@ def serialize_stream(stream: CameraStream) -> StreamRead:
         id=stream.id,
         name=stream.name,
         rtsp_url=stream.rtsp_url,
+        latitude=stream.latitude,
+        longitude=stream.longitude,
         grid_size=stream.grid_size,
         win_radius=stream.win_radius,
         threshold=stream.threshold,
@@ -303,6 +307,8 @@ def create_stream(payload: StreamCreate, db: Session = Depends(get_db)) -> Strea
     stream = CameraStream(
         name=payload.name.strip(),
         rtsp_url=payload.rtsp_url.strip(),
+        latitude=payload.latitude,
+        longitude=payload.longitude,
         grid_size=payload.grid_size,
         win_radius=payload.win_radius,
         threshold=payload.threshold,
@@ -384,6 +390,12 @@ def update_stream(stream_id: UUID, payload: StreamUpdate, db: Session = Depends(
             should_restart = True
     if payload.rtsp_url is not None and payload.rtsp_url.strip() != stream.rtsp_url:
         stream.rtsp_url = payload.rtsp_url.strip()
+        should_restart = True
+    if "latitude" in payload.model_fields_set and payload.latitude != stream.latitude:
+        stream.latitude = payload.latitude
+        should_restart = True
+    if "longitude" in payload.model_fields_set and payload.longitude != stream.longitude:
+        stream.longitude = payload.longitude
         should_restart = True
     if payload.grid_size is not None and payload.grid_size != stream.grid_size:
         stream.grid_size = payload.grid_size

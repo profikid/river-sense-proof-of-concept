@@ -157,6 +157,7 @@ If the stream is active, saving config restarts its worker with the new settings
 - `DELETE /streams/{id}` - delete stream
 - `POST /streams/{id}/activate` - start worker for stream
 - `POST /streams/{id}/deactivate` - stop worker for stream
+- `GET /streams/{id}/worker-logs?tail=160` - latest worker activity log lines
 - `GET /metrics` - API-level Prometheus metrics
 - `WS /ws/frames?stream_id=<uuid>` - live frame feed (filtered per stream)
 
@@ -285,6 +286,10 @@ Optional environment variables:
 - **No metrics in Grafana**:
   - Confirm worker target exists in `prometheus/file_sd/workers.json`
   - Check Prometheus targets page: [http://localhost:9090/targets](http://localhost:9090/targets)
+- **Worker warns `Error -2 connecting to redis:6379`**:
+  - Ensure worker and Redis are on the same Docker network (`vectorflow`).
+  - Restart API + workers after Redis is up: `docker compose restart api`.
+  - Worker now auto-tries Redis host fallbacks (`redis`, `vectorflow-redis`) and throttles repeated warning spam.
 
 ## Stop Everything
 

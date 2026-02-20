@@ -472,6 +472,62 @@ input:focus {
   color: var(--accent-soft);
 }
 
+.worker-log-section {
+  margin-top: 0.85rem;
+  border-radius: 12px;
+  border: 1px solid rgba(132, 205, 210, 0.22);
+  background: rgba(6, 17, 25, 0.72);
+  padding: 0.65rem;
+}
+
+.worker-log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.worker-log-header h3 {
+  margin: 0;
+  font-size: 0.84rem;
+  letter-spacing: 0.06em;
+  color: var(--accent-soft);
+}
+
+.worker-log-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.worker-log-meta .status {
+  font-size: 0.64rem;
+}
+
+.worker-log-container {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.67rem;
+  color: var(--muted);
+}
+
+.worker-log-output {
+  margin: 0.45rem 0 0;
+  max-height: 230px;
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(127, 201, 205, 0.24);
+  background: rgba(3, 10, 16, 0.85);
+  padding: 0.55rem 0.65rem;
+  color: #cde4e8;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .grafana-frame {
   width: 100%;
   min-height: 410px;

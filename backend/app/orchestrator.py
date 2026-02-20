@@ -92,6 +92,22 @@ class WorkerOrchestrator:
         except Exception:
             return "unknown"
 
+    def get_worker_logs(self, container_name: Optional[str], tail: int = 200) -> list[str]:
+        if not container_name:
+            return []
+
+        safe_tail = max(1, min(int(tail), 1000))
+        try:
+            client = self._require_client()
+            container = client.containers.get(container_name)
+            raw = container.logs(tail=safe_tail, timestamps=True)
+            decoded = raw.decode("utf-8", errors="replace")
+            return [line for line in decoded.splitlines() if line.strip()]
+        except NotFound:
+            return []
+        except Exception as exc:
+            raise RuntimeError(f"Unable to fetch worker logs from {container_name}: {exc}") from exc
+
     def start_worker(self, db: Session, stream: CameraStream) -> str:
         client = self._require_client()
         self.ensure_worker_image()

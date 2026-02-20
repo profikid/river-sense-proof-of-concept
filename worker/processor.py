@@ -5,6 +5,7 @@ import os
 import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import urlsplit, urlunsplit
 
 import cv2
 import numpy as np
@@ -100,7 +101,9 @@ class FlowProcessor:
 
         self.prometheus_port = int(os.getenv("PROMETHEUS_PORT", "9100"))
         self.redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
+        self.redis_fallback_urls_raw = os.getenv("REDIS_FALLBACK_URLS", "")
         self.redis_channel = os.getenv("REDIS_CHANNEL", "flow.frames")
+        self.redis_log_interval_sec = float(os.getenv("REDIS_LOG_INTERVAL_SEC", "15.0"))
         self.reconnect_delay = float(os.getenv("RECONNECT_DELAY_SEC", "2.0"))
         self.max_vectors_out = int(os.getenv("MAX_VECTORS_OUT", "120"))
         self.trail_decay = float(clamp(float(os.getenv("TRAIL_DECAY", "0.88")), 0.5, 0.99))
@@ -112,6 +115,10 @@ class FlowProcessor:
         self.trail_layer: Optional[np.ndarray] = None
         self.process = psutil.Process()
         self.gpu_handle = None
+        self.redis_client: Optional[redis.Redis] = None
+        self.redis_active_url: Optional[str] = None
+        self.redis_candidate_urls = self._build_redis_candidate_urls()
+        self.last_redis_error_log = 0.0
 
         lk_window = max(5, self.win_radius * 2 + 1)
         if lk_window % 2 == 0:
@@ -129,8 +136,6 @@ class FlowProcessor:
             "minDistance": max(4, self.grid_size // 2),
             "blockSize": 7,
         }
-
-        self.redis_client = redis.from_url(self.redis_url, decode_responses=True)
 
         labels = {"stream_id": self.stream_id, "stream_name": self.stream_name}
         self.metric_avg = AVG_MAG.labels(**labels)
@@ -165,6 +170,98 @@ class FlowProcessor:
             self.show_magnitude,
             self.show_trails,
         )
+
+    @staticmethod
+    def _replace_url_host(redis_url: str, host: str) -> Optional[str]:
+        parts = urlsplit(redis_url)
+        if not parts.scheme or not parts.hostname:
+            return None
+
+        credentials = ""
+        if parts.username:
+            credentials = parts.username
+            if parts.password:
+                credentials = f"{credentials}:{parts.password}"
+            credentials = f"{credentials}@"
+
+        netloc = f"{credentials}{host}"
+        if parts.port is not None:
+            netloc = f"{netloc}:{parts.port}"
+
+        return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+
+    def _build_redis_candidate_urls(self) -> List[str]:
+        candidates: List[str] = []
+
+        def add(url: Optional[str]) -> None:
+            if not url:
+                return
+            cleaned = url.strip()
+            if cleaned and cleaned not in candidates:
+                candidates.append(cleaned)
+
+        add(self.redis_url)
+        for fallback in self.redis_fallback_urls_raw.split(","):
+            add(fallback)
+
+        parts = urlsplit(self.redis_url)
+        host = (parts.hostname or "").strip().lower()
+        if host == "redis":
+            add(self._replace_url_host(self.redis_url, "vectorflow-redis"))
+        elif host == "vectorflow-redis":
+            add(self._replace_url_host(self.redis_url, "redis"))
+        elif host in {"localhost", "127.0.0.1"}:
+            add(self._replace_url_host(self.redis_url, "host.docker.internal"))
+
+        return candidates
+
+    def _log_redis_warning(self, message: str, *args: object) -> None:
+        now = time.time()
+        if now - self.last_redis_error_log < self.redis_log_interval_sec:
+            return
+        logger.warning(message, *args)
+        self.last_redis_error_log = now
+
+    def _connect_redis(self) -> Optional[redis.Redis]:
+        if self.redis_client is not None:
+            return self.redis_client
+
+        errors: List[str] = []
+        for candidate in self.redis_candidate_urls:
+            try:
+                client = redis.from_url(
+                    candidate,
+                    decode_responses=True,
+                    socket_connect_timeout=1.5,
+                    socket_timeout=1.5,
+                    health_check_interval=30,
+                )
+                client.ping()
+                self.redis_client = client
+                if self.redis_active_url != candidate:
+                    logger.info("Connected to Redis publish channel via %s", candidate)
+                self.redis_active_url = candidate
+                return client
+            except Exception as exc:
+                errors.append(f"{candidate}: {exc}")
+
+        self.redis_client = None
+        self.redis_active_url = None
+        self._log_redis_warning("Redis connect failed. Tried %s", " | ".join(errors))
+        return None
+
+    def _publish_to_redis(self, payload: dict, context: str) -> bool:
+        client = self._connect_redis()
+        if client is None:
+            return False
+
+        try:
+            client.publish(self.redis_channel, json.dumps(payload))
+            return True
+        except Exception as exc:
+            self.redis_client = None
+            self._log_redis_warning("Redis %s failed: %s", context, exc)
+            return False
 
     def _init_gpu_metrics(self) -> None:
         self.metric_gpu_available.set(0)
@@ -236,11 +333,8 @@ class FlowProcessor:
         if error:
             payload["error"] = error
 
-        try:
-            self.redis_client.publish(self.redis_channel, json.dumps(payload))
+        if self._publish_to_redis(payload, "status publish"):
             self.last_status_sent = now
-        except Exception as exc:
-            logger.warning("Redis status publish failed: %s", exc)
 
     def _open_capture(self) -> cv2.VideoCapture:
         attempt = 0
@@ -435,10 +529,7 @@ class FlowProcessor:
             "frame_b64": frame_b64,
         }
 
-        try:
-            self.redis_client.publish(self.redis_channel, json.dumps(payload))
-        except Exception as exc:
-            logger.warning("Redis publish failed: %s", exc)
+        self._publish_to_redis(payload, "publish")
 
     def _update_metrics(self, vectors: List[FlowVector], fps: float) -> tuple[float, float]:
         if vectors:

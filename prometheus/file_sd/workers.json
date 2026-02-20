@@ -28,6 +28,15 @@
   },
   {
     "targets": [
+      "None:9100"
+    ],
+    "labels": {
+      "stream_id": "ce688078-c255-4797-b7a4-ea91586613bb",
+      "stream_name": "china"
+    }
+  },
+  {
+    "targets": [
       "vector-worker-34574dca3d71:9100"
     ],
     "labels": {

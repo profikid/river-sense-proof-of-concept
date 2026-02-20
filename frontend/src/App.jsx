@@ -52,6 +52,9 @@ const TOGGLE_FIELDS = [
   { key: "show_trails", label: "Motion Trails" },
 ];
 
+const WORKER_LOG_TAIL = 180;
+const WORKER_LOG_POLL_MS = 5000;
+
 const DEFAULT_DASHBOARD_RANGE = "15m";
 const DASHBOARD_TIME_OPTIONS = [
   { value: "5m", label: "Last 5 minutes" },
@@ -221,6 +224,12 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [wsStatus, setWsStatus] = useState("disconnected");
   const [framePayload, setFramePayload] = useState(null);
+  const [workerLogs, setWorkerLogs] = useState([]);
+  const [workerLogStatus, setWorkerLogStatus] = useState("unknown");
+  const [workerLogContainer, setWorkerLogContainer] = useState(null);
+  const [workerLogError, setWorkerLogError] = useState("");
+  const [workerLogLoading, setWorkerLogLoading] = useState(false);
+  const [workerLogUpdatedAt, setWorkerLogUpdatedAt] = useState(null);
 
   const canvasRef = useRef(null);
   const imageRef = useRef(new Image());
@@ -416,6 +425,61 @@ export default function App() {
 
     img.src = `data:image/jpeg;base64,${framePayload.frame_b64}`;
   }, [framePayload]);
+
+  useEffect(() => {
+    if (currentView !== "config" || !selectedStreamId) {
+      setWorkerLogs([]);
+      setWorkerLogStatus("unknown");
+      setWorkerLogContainer(null);
+      setWorkerLogError("");
+      setWorkerLogLoading(false);
+      setWorkerLogUpdatedAt(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchWorkerLogs = async (silent = false) => {
+      if (!silent && !cancelled) {
+        setWorkerLogLoading(true);
+      }
+      try {
+        const payload = await apiRequest(`/streams/${selectedStreamId}/worker-logs?tail=${WORKER_LOG_TAIL}`);
+        if (cancelled) {
+          return;
+        }
+        setWorkerLogs(Array.isArray(payload?.logs) ? payload.logs : []);
+        setWorkerLogStatus(payload?.worker_status || "unknown");
+        setWorkerLogContainer(payload?.worker_container_name || null);
+        setWorkerLogError(payload?.error || "");
+        setWorkerLogUpdatedAt(new Date().toISOString());
+      } catch (err) {
+        if (cancelled) {
+          return;
+        }
+        setWorkerLogError(err.message);
+      } finally {
+        if (!silent && !cancelled) {
+          setWorkerLogLoading(false);
+        }
+      }
+    };
+
+    fetchWorkerLogs(false).catch(() => {
+      // Keep previous state if the initial fetch fails.
+    });
+
+    const interval = setInterval(() => {
+      fetchWorkerLogs(true).catch(() => {
+        // Ignore periodic fetch failures and keep last known logs.
+      });
+    }, WORKER_LOG_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [currentView, selectedStreamId]);
 
   const resetForm = () => {
     setForm(DEFAULT_FORM);
@@ -742,6 +806,33 @@ export default function App() {
                 <strong>{latestStats.vectors}</strong>
               </div>
             </div>
+
+            <section className="worker-log-section">
+              <div className="worker-log-header">
+                <h3>Worker Activity Log</h3>
+                <div className="worker-log-meta">
+                  <span className={`status ${workerLogStatus}`}>{workerLogStatus}</span>
+                  {workerLogContainer && (
+                    <span className="worker-log-container">{workerLogContainer}</span>
+                  )}
+                  {workerLogUpdatedAt && (
+                    <span className="muted">
+                      Updated {new Date(workerLogUpdatedAt).toLocaleTimeString()}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {workerLogLoading && <p className="muted">Loading worker logs...</p>}
+              {workerLogError && <p className="error">{workerLogError}</p>}
+              {!selectedStream ? (
+                <p className="muted">Select a stream to inspect worker activity.</p>
+              ) : workerLogs.length === 0 ? (
+                <p className="muted">No worker log lines available for this stream.</p>
+              ) : (
+                <pre className="worker-log-output">{workerLogs.join("\n")}</pre>
+              )}
+            </section>
           </section>
         </main>
       ) : (

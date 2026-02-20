@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import CONTENT_TYPE_LATEST, Gauge, generate_latest
 from sqlalchemy import text
@@ -221,6 +221,35 @@ def get_stream(stream_id: UUID, db: Session = Depends(get_db)) -> StreamRead:
     if stream is None:
         raise HTTPException(status_code=404, detail="Stream not found")
     return serialize_stream(stream)
+
+
+@app.get("/streams/{stream_id}/worker-logs")
+def get_worker_logs(
+    stream_id: UUID,
+    tail: int = Query(default=160, ge=1, le=1000),
+    db: Session = Depends(get_db),
+) -> dict:
+    stream = db.get(CameraStream, stream_id)
+    if stream is None:
+        raise HTTPException(status_code=404, detail="Stream not found")
+
+    worker_status = orchestrator.get_worker_status(stream.worker_container_name)
+    logs: list[str] = []
+    fetch_error: Optional[str] = None
+    try:
+        logs = orchestrator.get_worker_logs(stream.worker_container_name, tail=tail)
+    except Exception as exc:
+        fetch_error = str(exc)
+
+    return {
+        "stream_id": str(stream.id),
+        "stream_name": stream.name,
+        "worker_container_name": stream.worker_container_name,
+        "worker_status": worker_status,
+        "tail": tail,
+        "logs": logs,
+        "error": fetch_error,
+    }
 
 
 @app.put("/streams/{stream_id}", response_model=StreamRead)

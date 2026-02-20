@@ -10,11 +10,11 @@
   },
   {
     "targets": [
-      "vector-worker-34574dca3d71:9100"
+      "vector-worker-d3db111e67b3:9100"
     ],
     "labels": {
-      "stream_id": "34574dca-3d71-4a3a-959c-67b51240e240",
-      "stream_name": "something else motion trail"
+      "stream_id": "d3db111e-67b3-46ee-93d7-fd285eddd75d",
+      "stream_name": "smoketest"
     }
   },
   {
@@ -28,11 +28,11 @@
   },
   {
     "targets": [
-      "vector-worker-d3db111e67b3:9100"
+      "vector-worker-34574dca3d71:9100"
     ],
     "labels": {
-      "stream_id": "d3db111e-67b3-46ee-93d7-fd285eddd75d",
-      "stream_name": "smoketest"
+      "stream_id": "34574dca-3d71-4a3a-959c-67b51240e240",
+      "stream_name": "something else motion trail"
     }
   }
 ]

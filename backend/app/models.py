@@ -30,6 +30,8 @@ class CameraStream(Base):
     show_arrows = Column(Boolean, nullable=False, default=True)
     show_magnitude = Column(Boolean, nullable=False, default=False)
     show_trails = Column(Boolean, nullable=False, default=False)
+    show_perspective_ruler = Column(Boolean, nullable=False, default=True)
+    perspective_ruler_opacity = Column(Float, nullable=False, default=70.0)
     is_active = Column(Boolean, nullable=False, default=False)
     worker_container_name = Column(String(255), nullable=True)
     worker_started_at = Column(DateTime(timezone=False), nullable=True)

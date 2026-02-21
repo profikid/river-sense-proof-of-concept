@@ -26,6 +26,8 @@ class StreamBase(BaseModel):
     show_arrows: bool = True
     show_magnitude: bool = False
     show_trails: bool = False
+    show_perspective_ruler: bool = True
+    perspective_ruler_opacity: float = Field(default=70.0, ge=0.0, le=100.0)
 
 
 class StreamCreate(StreamBase):
@@ -53,6 +55,8 @@ class StreamUpdate(BaseModel):
     show_arrows: Optional[bool] = None
     show_magnitude: Optional[bool] = None
     show_trails: Optional[bool] = None
+    show_perspective_ruler: Optional[bool] = None
+    perspective_ruler_opacity: Optional[float] = Field(default=None, ge=0.0, le=100.0)
     is_active: Optional[bool] = None
 
 

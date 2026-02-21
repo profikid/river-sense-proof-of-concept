@@ -1,11 +1,56 @@
 [
   {
     "targets": [
+      "vector-worker-1f01d5fa77a5:9100"
+    ],
+    "labels": {
+      "stream_id": "1f01d5fa-77a5-4501-abac-bbb0ce1c8d10",
+      "stream_name": "joeoe4"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-1f14f93b58b6:9100"
+    ],
+    "labels": {
+      "stream_id": "1f14f93b-58b6-42ec-840b-f790c0083324",
+      "stream_name": "moremorestreams"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-47dcc8420ccc:9100"
+    ],
+    "labels": {
+      "stream_id": "47dcc842-0ccc-461d-969a-6c0faca0e53f",
+      "stream_name": "sdfsdfsdfaaa"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-0958d6a8dbd1:9100"
+    ],
+    "labels": {
+      "stream_id": "0958d6a8-dbd1-4bf7-832b-7e5bd93ac9bb",
+      "stream_name": "sdfsdfsdfsdf"
+    }
+  },
+  {
+    "targets": [
       "vector-worker-427bc821e0c6:9100"
     ],
     "labels": {
       "stream_id": "427bc821-e0c6-4a05-b1c2-887ccd2d9f90",
       "stream_name": "sdfsdfsdf"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-a59cab3b5630:9100"
+    ],
+    "labels": {
+      "stream_id": "a59cab3b-5630-4dad-9bb6-ad39cf981192",
+      "stream_name": "koh phangan"
     }
   },
   {

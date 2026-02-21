@@ -26,11 +26,13 @@ const DEFAULT_STREAM_CONFIG = {
   threshold: 1.2,
   arrow_scale: 4,
   arrow_opacity: 90,
+  perspective_ruler_opacity: 70,
   gradient_intensity: 1.0,
   show_feed: true,
   show_arrows: true,
   show_magnitude: false,
   show_trails: false,
+  show_perspective_ruler: true,
 };
 
 const DEFAULT_FORM = {
@@ -55,6 +57,7 @@ const NUMERIC_FIELDS = {
   threshold: { min: 0, max: 100, step: 0.1 },
   arrow_scale: { min: 0.1, max: 25, step: 0.1 },
   arrow_opacity: { min: 0, max: 100, step: 1 },
+  perspective_ruler_opacity: { min: 0, max: 100, step: 1 },
   gradient_intensity: { min: 0.1, max: 5, step: 0.1 },
 };
 
@@ -64,6 +67,7 @@ const SLIDER_FIELDS = [
   { key: "threshold", label: "Sensitivity Threshold", unit: "" },
   { key: "arrow_scale", label: "Arrow Scale", unit: "x" },
   { key: "arrow_opacity", label: "Arrow Opacity", unit: "%" },
+  { key: "perspective_ruler_opacity", label: "Perspective Ruler Opacity", unit: "%" },
   { key: "gradient_intensity", label: "Gradient Intensity", unit: "x" },
 ];
 
@@ -72,6 +76,7 @@ const TOGGLE_FIELDS = [
   { key: "show_arrows", label: "Flow Arrows" },
   { key: "show_magnitude", label: "Magnitude Map" },
   { key: "show_trails", label: "Motion Trails" },
+  { key: "show_perspective_ruler", label: "Perspective Ruler" },
 ];
 
 const WORKER_LOG_TAIL = 180;
@@ -418,11 +423,17 @@ function streamToForm(stream) {
     threshold: stream.threshold ?? DEFAULT_STREAM_CONFIG.threshold,
     arrow_scale: stream.arrow_scale ?? DEFAULT_STREAM_CONFIG.arrow_scale,
     arrow_opacity: stream.arrow_opacity ?? DEFAULT_STREAM_CONFIG.arrow_opacity,
+    perspective_ruler_opacity: normalizePerspectiveRulerOpacity(
+      stream.perspective_ruler_opacity ?? DEFAULT_STREAM_CONFIG.perspective_ruler_opacity,
+      DEFAULT_STREAM_CONFIG.perspective_ruler_opacity
+    ),
     gradient_intensity: stream.gradient_intensity ?? DEFAULT_STREAM_CONFIG.gradient_intensity,
     show_feed: stream.show_feed ?? DEFAULT_STREAM_CONFIG.show_feed,
     show_arrows: stream.show_arrows ?? DEFAULT_STREAM_CONFIG.show_arrows,
     show_magnitude: stream.show_magnitude ?? DEFAULT_STREAM_CONFIG.show_magnitude,
     show_trails: stream.show_trails ?? DEFAULT_STREAM_CONFIG.show_trails,
+    show_perspective_ruler:
+      stream.show_perspective_ruler ?? DEFAULT_STREAM_CONFIG.show_perspective_ruler,
   };
 }
 
@@ -516,6 +527,13 @@ function normalizeCameraHeight(value, fallback = DEFAULT_FORM.camera_height_m) {
   return parseBoundedNumber(value, CAMERA_HEIGHT_MIN, CAMERA_HEIGHT_MAX, fallback);
 }
 
+function normalizePerspectiveRulerOpacity(
+  value,
+  fallback = DEFAULT_STREAM_CONFIG.perspective_ruler_opacity
+) {
+  return parseBoundedNumber(value, 0, 100, fallback);
+}
+
 function estimateGroundReachMeters(cameraHeightM, cameraTiltDeg) {
   const height = Number(cameraHeightM);
   const tilt = Number(cameraTiltDeg);
@@ -601,6 +619,131 @@ function shortestAngleDelta(targetDeg, referenceDeg) {
   const target = normalizeBearing(targetDeg);
   const reference = normalizeBearing(referenceDeg);
   return ((target - reference + 540) % 360) - 180;
+}
+
+function interpolate(start, end, ratio) {
+  return start + (end - start) * ratio;
+}
+
+function buildPerspectiveGridGeometry(stream) {
+  const streamOrientation = Number(stream?.orientation_deg);
+  const streamViewAngle = Number(stream?.view_angle_deg);
+  const streamViewDistance = Number(stream?.view_distance_m);
+  const streamCameraTilt = Number(stream?.camera_tilt_deg);
+  const streamCameraHeight = Number(stream?.camera_height_m);
+
+  const orientationDeg = normalizeOrientation(
+    Number.isFinite(streamOrientation) ? streamOrientation : DEFAULT_FORM.orientation_deg
+  );
+  const viewAngleDeg = parseBoundedNumber(
+    Number.isFinite(streamViewAngle) ? streamViewAngle : DEFAULT_FORM.view_angle_deg,
+    CAMERA_VIEW_ANGLE_MIN,
+    CAMERA_VIEW_ANGLE_MAX,
+    DEFAULT_FORM.view_angle_deg
+  );
+  const viewDistanceM = normalizeViewDistance(
+    Number.isFinite(streamViewDistance) ? streamViewDistance : DEFAULT_FORM.view_distance_m,
+    DEFAULT_FORM.view_distance_m
+  );
+  const cameraTiltDeg = normalizeCameraTilt(
+    Number.isFinite(streamCameraTilt) ? streamCameraTilt : DEFAULT_FORM.camera_tilt_deg,
+    DEFAULT_FORM.camera_tilt_deg
+  );
+  const cameraHeightM = normalizeCameraHeight(
+    Number.isFinite(streamCameraHeight) ? streamCameraHeight : DEFAULT_FORM.camera_height_m,
+    DEFAULT_FORM.camera_height_m
+  );
+
+  const signedOrientation = shortestAngleDelta(orientationDeg, 0);
+  const orientationFactor = Math.sin((signedOrientation * Math.PI) / 180);
+  const distanceRatio = clampNumber(
+    (viewDistanceM - CAMERA_VIEW_DISTANCE_MIN) /
+      Math.max(1, CAMERA_VIEW_DISTANCE_MAX - CAMERA_VIEW_DISTANCE_MIN),
+    0,
+    1
+  );
+  const tiltRatio = clampNumber(
+    (cameraTiltDeg - CAMERA_TILT_MIN) / Math.max(1, CAMERA_TILT_MAX - CAMERA_TILT_MIN),
+    0,
+    1
+  );
+  const groundReachM = estimateGroundReachMeters(cameraHeightM, cameraTiltDeg);
+  const groundReachRatio =
+    groundReachM === null
+      ? null
+      : clampNumber(groundReachM / Math.max(1, viewDistanceM), 0, 1);
+
+  let horizonY = 62 - distanceRatio * 24 + tiltRatio * 18;
+  if (groundReachRatio !== null) {
+    horizonY += (1 - groundReachRatio) * 10;
+  }
+  horizonY = clampNumber(horizonY, 18, 78);
+
+  const topWidth =
+    18 +
+    ((viewAngleDeg - CAMERA_VIEW_ANGLE_MIN) /
+      Math.max(1, CAMERA_VIEW_ANGLE_MAX - CAMERA_VIEW_ANGLE_MIN)) *
+      58;
+  const nearY = 97;
+  const leftBottomX = 2;
+  const rightBottomX = 98;
+  const vanishX = clampNumber(50 + orientationFactor * 16, 18, 82);
+  let leftTopX = vanishX - topWidth * 0.5;
+  let rightTopX = vanishX + topWidth * 0.5;
+  if (leftTopX < 4) {
+    const delta = 4 - leftTopX;
+    leftTopX += delta;
+    rightTopX += delta;
+  }
+  if (rightTopX > 96) {
+    const delta = rightTopX - 96;
+    leftTopX -= delta;
+    rightTopX -= delta;
+  }
+  leftTopX = clampNumber(leftTopX, 4, 92);
+  rightTopX = clampNumber(rightTopX, 8, 96);
+
+  const laneDivisions = clampNumber(Math.round(5 + viewAngleDeg / 26), 6, 12);
+  const laneLines = [];
+  for (let index = 1; index < laneDivisions; index += 1) {
+    const ratio = index / laneDivisions;
+    laneLines.push({
+      x1: interpolate(leftTopX, rightTopX, ratio),
+      y1: horizonY,
+      x2: interpolate(leftBottomX, rightBottomX, ratio),
+      y2: nearY,
+    });
+  }
+
+  const depthDivisions = clampNumber(Math.round(4 + viewDistanceM / 110), 5, 13);
+  const depthLines = [];
+  for (let index = 1; index <= depthDivisions; index += 1) {
+    const ratio = index / (depthDivisions + 1);
+    const yRatio = Math.pow(ratio, 1.75);
+    const xRatio = Math.pow(ratio, 1.24);
+    depthLines.push({
+      y: interpolate(horizonY, nearY, yRatio),
+      xLeft: interpolate(leftTopX, leftBottomX, xRatio),
+      xRight: interpolate(rightTopX, rightBottomX, xRatio),
+    });
+  }
+
+  return {
+    leftTopX,
+    rightTopX,
+    leftBottomX,
+    rightBottomX,
+    horizonY,
+    nearY,
+    laneLines,
+    depthLines,
+    headingLine: {
+      x1: vanishX,
+      y1: horizonY,
+      x2: 50 + orientationFactor * 7,
+      y2: nearY,
+    },
+  };
 }
 
 function resolveLiveDirectionBearing(orientationDeg, vectorDirectionDeg, orientationOffsetDeg) {
@@ -689,6 +832,10 @@ function buildPayload(form) {
     form.camera_height_m,
     DEFAULT_FORM.camera_height_m
   );
+  const perspectiveRulerOpacity = normalizePerspectiveRulerOpacity(
+    form.perspective_ruler_opacity,
+    DEFAULT_STREAM_CONFIG.perspective_ruler_opacity
+  );
   let locationName = normalizeLocationName(form.location_name);
   if (latitude !== null && longitude !== null && !locationName) {
     locationName = buildPinnedPointName(latitude, longitude);
@@ -711,11 +858,13 @@ function buildPayload(form) {
     threshold: Number(form.threshold),
     arrow_scale: Number(form.arrow_scale),
     arrow_opacity: Number(form.arrow_opacity),
+    perspective_ruler_opacity: Number(perspectiveRulerOpacity.toFixed(0)),
     gradient_intensity: Number(form.gradient_intensity),
     show_feed: !!form.show_feed,
     show_arrows: !!form.show_arrows,
     show_magnitude: !!form.show_magnitude,
     show_trails: !!form.show_trails,
+    show_perspective_ruler: !!form.show_perspective_ruler,
   };
 }
 
@@ -917,6 +1066,96 @@ function StreamMapCenter({ latitude, longitude, focusKey }) {
   return null;
 }
 
+function LivePerspectiveGridOverlay({ stream }) {
+  const showPerspectiveRuler =
+    stream?.show_perspective_ruler ?? DEFAULT_STREAM_CONFIG.show_perspective_ruler;
+  if (!showPerspectiveRuler) {
+    return null;
+  }
+
+  const opacityRatio = clampNumber(
+    normalizePerspectiveRulerOpacity(
+      stream?.perspective_ruler_opacity,
+      DEFAULT_STREAM_CONFIG.perspective_ruler_opacity
+    ) / 100,
+    0,
+    1
+  );
+
+  const geometry = useMemo(
+    () => buildPerspectiveGridGeometry(stream),
+    [
+      stream?.orientation_deg,
+      stream?.view_angle_deg,
+      stream?.view_distance_m,
+      stream?.camera_tilt_deg,
+      stream?.camera_height_m,
+    ]
+  );
+
+  const surfacePoints = [
+    [geometry.leftTopX, geometry.horizonY],
+    [geometry.rightTopX, geometry.horizonY],
+    [geometry.rightBottomX, geometry.nearY],
+    [geometry.leftBottomX, geometry.nearY],
+  ]
+    .map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`)
+    .join(" ");
+
+  return (
+    <svg
+      className="live-processing-overlay"
+      viewBox="0 0 100 100"
+      preserveAspectRatio="none"
+      style={{ opacity: opacityRatio }}
+      aria-hidden="true"
+    >
+      <polygon className="live-processing-surface" points={surfacePoints} />
+      <line
+        className="live-processing-boundary"
+        x1={geometry.leftTopX.toFixed(2)}
+        y1={geometry.horizonY.toFixed(2)}
+        x2={geometry.leftBottomX.toFixed(2)}
+        y2={geometry.nearY.toFixed(2)}
+      />
+      <line
+        className="live-processing-boundary"
+        x1={geometry.rightTopX.toFixed(2)}
+        y1={geometry.horizonY.toFixed(2)}
+        x2={geometry.rightBottomX.toFixed(2)}
+        y2={geometry.nearY.toFixed(2)}
+      />
+      {geometry.depthLines.map((line, index) => (
+        <line
+          key={`depth-${index}`}
+          className="live-processing-depth-line"
+          x1={line.xLeft.toFixed(2)}
+          y1={line.y.toFixed(2)}
+          x2={line.xRight.toFixed(2)}
+          y2={line.y.toFixed(2)}
+        />
+      ))}
+      {geometry.laneLines.map((line, index) => (
+        <line
+          key={`lane-${index}`}
+          className="live-processing-lane-line"
+          x1={line.x1.toFixed(2)}
+          y1={line.y1.toFixed(2)}
+          x2={line.x2.toFixed(2)}
+          y2={line.y2.toFixed(2)}
+        />
+      ))}
+      <line
+        className="live-processing-heading-line"
+        x1={geometry.headingLine.x1.toFixed(2)}
+        y1={geometry.headingLine.y1.toFixed(2)}
+        x2={geometry.headingLine.x2.toFixed(2)}
+        y2={geometry.headingLine.y2.toFixed(2)}
+      />
+    </svg>
+  );
+}
+
 function LiveOverviewMapViewport({ points, fitKey, singlePointZoom = MAP_SELECTED_ZOOM }) {
   const map = useMap();
 
@@ -1073,6 +1312,14 @@ export default function App() {
     () => normalizeCameraHeight(form.camera_height_m, DEFAULT_FORM.camera_height_m),
     [form.camera_height_m]
   );
+  const formPerspectiveRulerOpacity = useMemo(
+    () =>
+      normalizePerspectiveRulerOpacity(
+        form.perspective_ruler_opacity,
+        DEFAULT_STREAM_CONFIG.perspective_ruler_opacity
+      ),
+    [form.perspective_ruler_opacity]
+  );
   const formGroundReachM = useMemo(
     () => estimateGroundReachMeters(formCameraHeightM, formCameraTiltDeg),
     [formCameraHeightM, formCameraTiltDeg]
@@ -1138,6 +1385,28 @@ export default function App() {
         iconAnchor: [12, 12],
       }),
     []
+  );
+  const configPreviewPerspectiveStream = useMemo(
+    () => ({
+      ...(selectedStream || {}),
+      orientation_deg: formOrientationDeg,
+      view_angle_deg: formViewAngleDeg,
+      view_distance_m: formViewDistanceM,
+      camera_tilt_deg: formCameraTiltDeg,
+      camera_height_m: formCameraHeightM,
+      show_perspective_ruler: !!form.show_perspective_ruler,
+      perspective_ruler_opacity: formPerspectiveRulerOpacity,
+    }),
+    [
+      selectedStream,
+      formOrientationDeg,
+      formViewAngleDeg,
+      formViewDistanceM,
+      formCameraTiltDeg,
+      formCameraHeightM,
+      form.show_perspective_ruler,
+      formPerspectiveRulerOpacity,
+    ]
   );
 
   const grafanaUrl = useMemo(() => {
@@ -2412,6 +2681,7 @@ export default function App() {
               </small>
             </div>
           )}
+          <LivePerspectiveGridOverlay stream={stream} />
         </div>
 
         <div className="live-metrics">
@@ -2488,6 +2758,7 @@ export default function App() {
                   </small>
                 </div>
               )}
+              <LivePerspectiveGridOverlay stream={stream} />
             </div>
           </div>
 
@@ -2682,6 +2953,7 @@ export default function App() {
               <small>{stream.is_active ? "Starting/reconnecting" : "Deactivated"}</small>
             </div>
           )}
+          <LivePerspectiveGridOverlay stream={stream} />
           <span className="live-frameless-name">{stream.name}</span>
           <div className="live-frameless-metrics">
             <span>F{toFixedValue(livePayload?.fps, 1, "0.0")}</span>
@@ -3295,6 +3567,7 @@ export default function App() {
 
               <div className="canvas-shell">
                 <canvas ref={canvasRef} className="preview-canvas" />
+                <LivePerspectiveGridOverlay stream={configPreviewPerspectiveStream} />
               </div>
 
               <div className="stats-grid">

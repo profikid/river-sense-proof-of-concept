@@ -68,6 +68,8 @@ SCHEMA_PATCHES = [
     "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS show_arrows BOOLEAN",
     "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS show_magnitude BOOLEAN",
     "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS show_trails BOOLEAN",
+    "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS show_perspective_ruler BOOLEAN",
+    "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS perspective_ruler_opacity DOUBLE PRECISION",
     "UPDATE camera_streams SET win_radius = 8 WHERE win_radius IS NULL",
     "UPDATE camera_streams SET arrow_scale = 4.0 WHERE arrow_scale IS NULL",
     "UPDATE camera_streams SET arrow_opacity = 90.0 WHERE arrow_opacity IS NULL",
@@ -76,6 +78,8 @@ SCHEMA_PATCHES = [
     "UPDATE camera_streams SET show_arrows = TRUE WHERE show_arrows IS NULL",
     "UPDATE camera_streams SET show_magnitude = FALSE WHERE show_magnitude IS NULL",
     "UPDATE camera_streams SET show_trails = FALSE WHERE show_trails IS NULL",
+    "UPDATE camera_streams SET show_perspective_ruler = TRUE WHERE show_perspective_ruler IS NULL",
+    "UPDATE camera_streams SET perspective_ruler_opacity = 70.0 WHERE perspective_ruler_opacity IS NULL",
     "UPDATE camera_streams SET orientation_deg = 0.0 WHERE orientation_deg IS NULL",
     "UPDATE camera_streams SET view_angle_deg = 60.0 WHERE view_angle_deg IS NULL",
     "UPDATE camera_streams SET view_distance_m = 120.0 WHERE view_distance_m IS NULL",
@@ -94,6 +98,8 @@ SCHEMA_PATCHES = [
     "ALTER TABLE camera_streams ALTER COLUMN show_arrows SET DEFAULT TRUE",
     "ALTER TABLE camera_streams ALTER COLUMN show_magnitude SET DEFAULT FALSE",
     "ALTER TABLE camera_streams ALTER COLUMN show_trails SET DEFAULT FALSE",
+    "ALTER TABLE camera_streams ALTER COLUMN show_perspective_ruler SET DEFAULT TRUE",
+    "ALTER TABLE camera_streams ALTER COLUMN perspective_ruler_opacity SET DEFAULT 70.0",
     "ALTER TABLE camera_streams ALTER COLUMN win_radius SET NOT NULL",
     "ALTER TABLE camera_streams ALTER COLUMN arrow_scale SET NOT NULL",
     "ALTER TABLE camera_streams ALTER COLUMN arrow_opacity SET NOT NULL",
@@ -102,6 +108,8 @@ SCHEMA_PATCHES = [
     "ALTER TABLE camera_streams ALTER COLUMN show_arrows SET NOT NULL",
     "ALTER TABLE camera_streams ALTER COLUMN show_magnitude SET NOT NULL",
     "ALTER TABLE camera_streams ALTER COLUMN show_trails SET NOT NULL",
+    "ALTER TABLE camera_streams ALTER COLUMN show_perspective_ruler SET NOT NULL",
+    "ALTER TABLE camera_streams ALTER COLUMN perspective_ruler_opacity SET NOT NULL",
     "ALTER TABLE camera_streams ALTER COLUMN orientation_deg SET NOT NULL",
     "ALTER TABLE camera_streams ALTER COLUMN view_angle_deg SET NOT NULL",
     "ALTER TABLE camera_streams ALTER COLUMN view_distance_m SET NOT NULL",
@@ -265,6 +273,8 @@ def serialize_stream(stream: CameraStream) -> StreamRead:
         show_arrows=stream.show_arrows,
         show_magnitude=stream.show_magnitude,
         show_trails=stream.show_trails,
+        show_perspective_ruler=stream.show_perspective_ruler,
+        perspective_ruler_opacity=stream.perspective_ruler_opacity,
         is_active=stream.is_active,
         created_at=stream.created_at,
         worker_container_name=stream.worker_container_name,
@@ -392,6 +402,8 @@ def create_stream(payload: StreamCreate, db: Session = Depends(get_db)) -> Strea
         show_arrows=payload.show_arrows,
         show_magnitude=payload.show_magnitude,
         show_trails=payload.show_trails,
+        show_perspective_ruler=payload.show_perspective_ruler,
+        perspective_ruler_opacity=payload.perspective_ruler_opacity,
         is_active=False,
     )
     db.add(stream)
@@ -514,6 +526,16 @@ def update_stream(stream_id: UUID, payload: StreamUpdate, db: Session = Depends(
     if payload.show_trails is not None and payload.show_trails != stream.show_trails:
         stream.show_trails = payload.show_trails
         should_restart = True
+    if (
+        payload.show_perspective_ruler is not None
+        and payload.show_perspective_ruler != stream.show_perspective_ruler
+    ):
+        stream.show_perspective_ruler = payload.show_perspective_ruler
+    if (
+        payload.perspective_ruler_opacity is not None
+        and payload.perspective_ruler_opacity != stream.perspective_ruler_opacity
+    ):
+        stream.perspective_ruler_opacity = payload.perspective_ruler_opacity
 
     if payload.is_active is True and not stream.is_active:
         try:

@@ -84,9 +84,17 @@ CREATE TABLE IF NOT EXISTS system_settings (
     live_preview_fps DOUBLE PRECISION NOT NULL DEFAULT 6.0,
     live_preview_jpeg_quality INTEGER NOT NULL DEFAULT 65,
     live_preview_max_width INTEGER NOT NULL DEFAULT 960,
+    orientation_offset_deg DOUBLE PRECISION NOT NULL DEFAULT 0.0,
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-INSERT INTO system_settings (id, live_preview_fps, live_preview_jpeg_quality, live_preview_max_width, updated_at)
-VALUES (1, 6.0, 65, 960, NOW())
+INSERT INTO system_settings (
+    id,
+    live_preview_fps,
+    live_preview_jpeg_quality,
+    live_preview_max_width,
+    orientation_offset_deg,
+    updated_at
+)
+VALUES (1, 6.0, 65, 960, 0.0, NOW())
 ON CONFLICT (id) DO NOTHING;

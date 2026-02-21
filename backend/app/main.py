@@ -103,24 +103,29 @@ SCHEMA_PATCHES = [
     "live_preview_fps DOUBLE PRECISION NOT NULL DEFAULT 6.0, "
     "live_preview_jpeg_quality INTEGER NOT NULL DEFAULT 65, "
     "live_preview_max_width INTEGER NOT NULL DEFAULT 960, "
+    "orientation_offset_deg DOUBLE PRECISION NOT NULL DEFAULT 0.0, "
     "updated_at TIMESTAMP NOT NULL DEFAULT NOW())",
     "ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS live_preview_fps DOUBLE PRECISION",
     "ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS live_preview_jpeg_quality INTEGER",
     "ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS live_preview_max_width INTEGER",
+    "ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS orientation_offset_deg DOUBLE PRECISION",
     "ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
     "UPDATE system_settings SET live_preview_fps = 6.0 WHERE live_preview_fps IS NULL",
     "UPDATE system_settings SET live_preview_jpeg_quality = 65 WHERE live_preview_jpeg_quality IS NULL",
     "UPDATE system_settings SET live_preview_max_width = 960 WHERE live_preview_max_width IS NULL",
+    "UPDATE system_settings SET orientation_offset_deg = 0.0 WHERE orientation_offset_deg IS NULL",
     "UPDATE system_settings SET updated_at = NOW() WHERE updated_at IS NULL",
-    "INSERT INTO system_settings (id, live_preview_fps, live_preview_jpeg_quality, live_preview_max_width, updated_at) "
-    "VALUES (1, 6.0, 65, 960, NOW()) ON CONFLICT (id) DO NOTHING",
+    "INSERT INTO system_settings (id, live_preview_fps, live_preview_jpeg_quality, live_preview_max_width, orientation_offset_deg, updated_at) "
+    "VALUES (1, 6.0, 65, 960, 0.0, NOW()) ON CONFLICT (id) DO NOTHING",
     "ALTER TABLE system_settings ALTER COLUMN live_preview_fps SET DEFAULT 6.0",
     "ALTER TABLE system_settings ALTER COLUMN live_preview_jpeg_quality SET DEFAULT 65",
     "ALTER TABLE system_settings ALTER COLUMN live_preview_max_width SET DEFAULT 960",
+    "ALTER TABLE system_settings ALTER COLUMN orientation_offset_deg SET DEFAULT 0.0",
     "ALTER TABLE system_settings ALTER COLUMN updated_at SET DEFAULT NOW()",
     "ALTER TABLE system_settings ALTER COLUMN live_preview_fps SET NOT NULL",
     "ALTER TABLE system_settings ALTER COLUMN live_preview_jpeg_quality SET NOT NULL",
     "ALTER TABLE system_settings ALTER COLUMN live_preview_max_width SET NOT NULL",
+    "ALTER TABLE system_settings ALTER COLUMN orientation_offset_deg SET NOT NULL",
     "ALTER TABLE system_settings ALTER COLUMN updated_at SET NOT NULL",
 ]
 
@@ -151,6 +156,7 @@ def get_or_create_system_settings(db: Session) -> SystemSettings:
         live_preview_fps=6.0,
         live_preview_jpeg_quality=65,
         live_preview_max_width=960,
+        orientation_offset_deg=0.0,
     )
     db.add(settings)
     db.commit()
@@ -258,6 +264,7 @@ def serialize_system_settings(settings: SystemSettings) -> SystemSettingsRead:
         live_preview_fps=settings.live_preview_fps,
         live_preview_jpeg_quality=settings.live_preview_jpeg_quality,
         live_preview_max_width=settings.live_preview_max_width,
+        orientation_offset_deg=settings.orientation_offset_deg,
         updated_at=settings.updated_at,
     )
 
@@ -299,23 +306,38 @@ def get_system_settings(db: Session = Depends(get_db)) -> SystemSettingsRead:
 def update_system_settings(payload: SystemSettingsUpdate, db: Session = Depends(get_db)) -> SystemSettingsRead:
     settings = get_or_create_system_settings(db)
 
-    changed = False
-    for field in ("live_preview_fps", "live_preview_jpeg_quality", "live_preview_max_width"):
+    changed_fields: set[str] = set()
+    for field in (
+        "live_preview_fps",
+        "live_preview_jpeg_quality",
+        "live_preview_max_width",
+        "orientation_offset_deg",
+    ):
         value = getattr(payload, field)
         if value is None:
             continue
         if getattr(settings, field) != value:
             setattr(settings, field, value)
-            changed = True
+            changed_fields.add(field)
 
-    if changed:
+    if changed_fields:
         db.add(settings)
         db.commit()
         db.refresh(settings)
 
     frame_broker.set_frame_rate_limit(settings.live_preview_fps)
 
-    if payload.restart_workers and (changed or payload.live_preview_fps is not None or payload.live_preview_jpeg_quality is not None or payload.live_preview_max_width is not None):
+    has_worker_runtime_setting = (
+        payload.live_preview_fps is not None
+        or payload.live_preview_jpeg_quality is not None
+        or payload.live_preview_max_width is not None
+    )
+    changed_worker_runtime_setting = bool(
+        changed_fields.intersection(
+            {"live_preview_fps", "live_preview_jpeg_quality", "live_preview_max_width"}
+        )
+    )
+    if payload.restart_workers and (has_worker_runtime_setting or changed_worker_runtime_setting):
         restart_errors = restart_active_workers(db)
         if restart_errors:
             raise HTTPException(

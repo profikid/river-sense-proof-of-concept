@@ -41,6 +41,7 @@ class SystemSettings(Base):
     live_preview_fps = Column(Float, nullable=False, default=6.0)
     live_preview_jpeg_quality = Column(Integer, nullable=False, default=65)
     live_preview_max_width = Column(Integer, nullable=False, default=960)
+    orientation_offset_deg = Column(Float, nullable=False, default=0.0)
     updated_at = Column(
         DateTime(timezone=False),
         nullable=False,

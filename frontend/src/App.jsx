@@ -92,6 +92,7 @@ const DEFAULT_SYSTEM_SETTINGS = {
   live_preview_fps: 6.0,
   live_preview_jpeg_quality: 65,
   live_preview_max_width: 960,
+  orientation_offset_deg: 0,
   restart_workers: true,
 };
 
@@ -131,6 +132,41 @@ const LIVE_LAYOUT_OPTIONS = [
   { value: "list", label: "List" },
   { value: "map", label: "Map" },
 ];
+
+const MAP_BASEMAP_OPTIONS = [
+  {
+    value: "white",
+    label: "White",
+    url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+    subdomains: "abcd",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  },
+  {
+    value: "dark",
+    label: "Dark",
+    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    subdomains: "abcd",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  },
+  {
+    value: "satellite",
+    label: "Satellite",
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attribution:
+      "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+  },
+  {
+    value: "streets",
+    label: "Streets",
+    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    subdomains: "abc",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  },
+];
+const DEFAULT_MAP_BASEMAP = "white";
 
 const MAP_DEFAULT_CENTER = [37.0902, -95.7129];
 const MAP_DEFAULT_ZOOM = 4;
@@ -341,6 +377,84 @@ function buildCameraViewPolygon(latitude, longitude, orientationDeg, viewAngleDe
   ];
 }
 
+function normalizeBearing(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  return ((numeric % 360) + 360) % 360;
+}
+
+function shortestAngleDelta(targetDeg, referenceDeg) {
+  const target = normalizeBearing(targetDeg);
+  const reference = normalizeBearing(referenceDeg);
+  return ((target - reference + 540) % 360) - 180;
+}
+
+function resolveLiveDirectionBearing(orientationDeg, vectorDirectionDeg, orientationOffsetDeg) {
+  const vectorDirection = Number(vectorDirectionDeg);
+  if (!Number.isFinite(vectorDirection)) {
+    return null;
+  }
+
+  const orientation = normalizeBearing(orientationDeg);
+  const offset = Number.isFinite(Number(orientationOffsetDeg)) ? Number(orientationOffsetDeg) : 0;
+  // Worker direction is screen-space where 90deg means "forward/up" in camera view.
+  // Convert it to world bearing by anchoring forward/up to camera orientation.
+  return normalizeBearing(orientation + (normalizeBearing(vectorDirection) - 90) + offset);
+}
+
+function clampBearingToCone(bearingDeg, orientationDeg, viewAngleDeg) {
+  const halfAngle = clampNumber(Number(viewAngleDeg) / 2, 1, 85);
+  const maxDelta = Math.max(1.5, halfAngle - 1.5);
+  const delta = shortestAngleDelta(bearingDeg, orientationDeg);
+  return normalizeBearing(normalizeBearing(orientationDeg) + clampNumber(delta, -maxDelta, maxDelta));
+}
+
+function buildFlowDirectionPattern(latitude, longitude, bearingDeg, viewAngleDeg, viewDistanceM) {
+  if (
+    !Number.isFinite(Number(latitude)) ||
+    !Number.isFinite(Number(longitude)) ||
+    !Number.isFinite(Number(bearingDeg))
+  ) {
+    return [];
+  }
+
+  const maxDistance = clampNumber(Number(viewDistanceM) * 0.82, 35, 420);
+  const startDistance = clampNumber(Number(viewDistanceM) * 0.18, 8, 110);
+  const stepCount = viewDistanceM >= 320 ? 5 : viewDistanceM >= 170 ? 4 : 3;
+  const segmentLength = clampNumber(Number(viewDistanceM) * 0.12, 10, 80);
+  const wingLength = clampNumber(segmentLength * 0.48, 7, 34);
+  const laneSpread = clampNumber(Number(viewAngleDeg) * 0.22, 6, 28);
+  const laneBearings =
+    Number(viewAngleDeg) >= 24
+      ? [bearingDeg - laneSpread, bearingDeg, bearingDeg + laneSpread]
+      : [bearingDeg];
+
+  const segments = [];
+  laneBearings.forEach((laneBearing, laneIndex) => {
+    for (let step = 0; step < stepCount; step += 1) {
+      const t = (step + 1) / (stepCount + 1);
+      const centerDistance = startDistance + (maxDistance - startDistance) * t;
+      const shaftStartDistance = Math.max(startDistance, centerDistance - segmentLength * 0.5);
+      const shaftEndDistance = Math.min(maxDistance, centerDistance + segmentLength * 0.5);
+      const shaftStart = destinationPoint(latitude, longitude, laneBearing, shaftStartDistance);
+      const shaftEnd = destinationPoint(latitude, longitude, laneBearing, shaftEndDistance);
+      const headLeft = destinationPoint(shaftEnd[0], shaftEnd[1], laneBearing + 154, wingLength);
+      const headRight = destinationPoint(shaftEnd[0], shaftEnd[1], laneBearing - 154, wingLength);
+
+      segments.push({
+        id: `${laneIndex}-${step}`,
+        shaft: [shaftStart, shaftEnd],
+        leftHead: [shaftEnd, headLeft],
+        rightHead: [shaftEnd, headRight],
+      });
+    }
+  });
+
+  return segments;
+}
+
 function buildPayload(form) {
   const latitude = parseOptionalCoordinate(form.latitude, -90, 90);
   const longitude = parseOptionalCoordinate(form.longitude, -180, 180);
@@ -520,6 +634,21 @@ function StreamMapClickCapture({ onPick }) {
   return null;
 }
 
+function MapBasemapSelector({ value, onChange }) {
+  return (
+    <label className="map-basemap-picker">
+      <span>Basemap</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        {MAP_BASEMAP_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function StreamMapCenter({ latitude, longitude, focusKey }) {
   const map = useMap();
 
@@ -612,6 +741,7 @@ export default function App() {
   ]);
   const [liveMapLayersOpen, setLiveMapLayersOpen] = useState(false);
   const [liveMapFitKey, setLiveMapFitKey] = useState(0);
+  const [mapBasemap, setMapBasemap] = useState(DEFAULT_MAP_BASEMAP);
   const [locationQuery, setLocationQuery] = useState("");
   const [locationSearching, setLocationSearching] = useState(false);
   const [locationResolvingPoint, setLocationResolvingPoint] = useState(false);
@@ -626,6 +756,21 @@ export default function App() {
     () => streams.find((stream) => stream.id === selectedStreamId) || null,
     [selectedStreamId, streams]
   );
+  const selectedBasemap = useMemo(
+    () =>
+      MAP_BASEMAP_OPTIONS.find((option) => option.value === mapBasemap) || MAP_BASEMAP_OPTIONS[0],
+    [mapBasemap]
+  );
+  const mapTileLayerProps = useMemo(() => {
+    const props = {
+      attribution: selectedBasemap.attribution,
+      url: selectedBasemap.url,
+    };
+    if (selectedBasemap.subdomains) {
+      props.subdomains = selectedBasemap.subdomains;
+    }
+    return props;
+  }, [selectedBasemap]);
   const formLatitude = useMemo(
     () => parseOptionalCoordinate(form.latitude, -90, 90),
     [form.latitude]
@@ -731,6 +876,7 @@ export default function App() {
       live_preview_fps: data.live_preview_fps,
       live_preview_jpeg_quality: data.live_preview_jpeg_quality,
       live_preview_max_width: data.live_preview_max_width,
+      orientation_offset_deg: Number(data.orientation_offset_deg ?? 0),
     }));
     setSettingsLoaded(true);
   };
@@ -1416,10 +1562,11 @@ export default function App() {
           live_preview_fps: Number(systemSettings.live_preview_fps),
           live_preview_jpeg_quality: Number(systemSettings.live_preview_jpeg_quality),
           live_preview_max_width: Number(systemSettings.live_preview_max_width),
+          orientation_offset_deg: Number(systemSettings.orientation_offset_deg),
           restart_workers: !!systemSettings.restart_workers,
         }),
       });
-      setNotice("System settings saved. Active workers were restarted to apply throttling.");
+      setNotice("System settings saved.");
       await loadStreams();
       await loadSystemSettings();
     } catch (err) {
@@ -1496,6 +1643,10 @@ export default function App() {
   const livePrimaryStreams = selectedLiveStream
     ? liveFilteredSortedStreams.filter((stream) => stream.id !== selectedLiveStream.id)
     : liveFilteredSortedStreams;
+  const liveDirectionOffsetDeg = useMemo(
+    () => parseBoundedNumber(systemSettings.orientation_offset_deg, -360, 360, 0),
+    [systemSettings.orientation_offset_deg]
+  );
 
   const liveMapStreams = useMemo(
     () =>
@@ -1522,6 +1673,29 @@ export default function App() {
             CAMERA_VIEW_DISTANCE_MAX,
             DEFAULT_FORM.view_distance_m
           );
+          const rawLiveDirectionBearing = resolveLiveDirectionBearing(
+            orientationDeg,
+            payload?.direction_degrees,
+            liveDirectionOffsetDeg
+          );
+          const liveDirectionBearing =
+            rawLiveDirectionBearing === null
+              ? null
+              : clampBearingToCone(rawLiveDirectionBearing, orientationDeg, viewAngleDeg);
+          const directionCoherence = Number(payload?.direction_coherence);
+          const flowPatternOpacity = Number.isFinite(directionCoherence)
+            ? clampNumber(0.26 + directionCoherence * 0.72, 0.26, 0.96)
+            : 0.38;
+          const flowDirectionPattern =
+            liveDirectionBearing === null
+              ? []
+              : buildFlowDirectionPattern(
+                  latitude,
+                  longitude,
+                  liveDirectionBearing,
+                  viewAngleDeg,
+                  viewDistanceM
+                );
 
           return {
             stream,
@@ -1532,6 +1706,9 @@ export default function App() {
             viewAngleDeg,
             viewDistanceM,
             colorValue,
+            liveDirectionBearing,
+            flowPatternOpacity,
+            flowDirectionPattern,
             cameraViewPolygon: buildCameraViewPolygon(
               latitude,
               longitude,
@@ -1546,7 +1723,7 @@ export default function App() {
           };
         })
         .filter(Boolean),
-    [liveFilteredStreams, liveFramesByStream, liveMapColorMetric]
+    [liveFilteredStreams, liveFramesByStream, liveMapColorMetric, liveDirectionOffsetDeg]
   );
 
   const liveMapPoints = useMemo(
@@ -1579,6 +1756,7 @@ export default function App() {
   const showLiveMapMarkers = liveMapLayers.includes("camera_markers");
   const showLiveMapCones = liveMapLayers.includes("camera_cones");
   const showLiveMapHeatmap = liveMapLayers.includes("heatmap");
+  const showSingleStreamFlowDirection = liveMapStreams.length === 1;
   const liveMapLayerSummary = useMemo(() => {
     const selectedLabels = LIVE_MAP_LAYER_OPTIONS.filter((option) =>
       liveMapLayers.includes(option.value)
@@ -2052,18 +2230,15 @@ export default function App() {
                     Search, use current location, or click map to set camera point; adjust orientation and cone.
                   </span>
                 </div>
-                <div className="stream-map-picker">
+                <div className="stream-map-picker map-with-basemap">
+                  <MapBasemapSelector value={mapBasemap} onChange={setMapBasemap} />
                   <MapContainer
                     center={mapCenter}
                     zoom={mapZoom}
                     scrollWheelZoom
                     className="stream-map-canvas"
                   >
-                    <TileLayer
-                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-                      subdomains="abcd"
-                      url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                    />
+                    <TileLayer {...mapTileLayerProps} />
                     <StreamMapClickCapture
                       onPick={handleMapPointSelection}
                     />
@@ -2466,34 +2641,39 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-                <div className="live-overview-map-shell">
+                <div className="live-overview-map-shell map-with-basemap">
                   {liveMapStreams.length === 0 ? (
                     <p className="muted">
                       No streams with valid coordinates match the current filters.
                     </p>
                   ) : (
-                    <MapContainer
-                      center={MAP_DEFAULT_CENTER}
-                      zoom={MAP_DEFAULT_ZOOM}
-                      scrollWheelZoom
-                      className="live-overview-map-canvas"
-                    >
-                      <TileLayer
-                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-                        subdomains="abcd"
-                        url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                      />
+                    <>
+                      <MapBasemapSelector value={mapBasemap} onChange={setMapBasemap} />
+                      <MapContainer
+                        center={MAP_DEFAULT_CENTER}
+                        zoom={MAP_DEFAULT_ZOOM}
+                        scrollWheelZoom
+                        className="live-overview-map-canvas"
+                      >
+                      <TileLayer {...mapTileLayerProps} />
                       <LiveOverviewMapViewport
                         points={liveMapPoints}
                         fitKey={liveMapFitKey}
                         singlePointZoom={MAP_LIVE_SINGLE_POINT_ZOOM}
                       />
-                      {liveMapStreams.map((entry) => {
-                        const { stream, payload, latitude, longitude, orientationDeg, colorValue } = entry;
-                        const isSelected = selectedStreamId === stream.id;
-                        const directionCoherencePercent = Number.isFinite(
-                          Number(payload?.direction_coherence)
-                        )
+		                      {liveMapStreams.map((entry) => {
+		                        const {
+		                          stream,
+		                          payload,
+		                          latitude,
+		                          longitude,
+		                          orientationDeg,
+		                          colorValue,
+		                        } = entry;
+		                        const isSelected = selectedStreamId === stream.id;
+		                        const directionCoherencePercent = Number.isFinite(
+		                          Number(payload?.direction_coherence)
+		                        )
                           ? Number(payload.direction_coherence) * 100
                           : 0;
                         const heatColor = getHeatColor(
@@ -2528,12 +2708,42 @@ export default function App() {
                                     weight: isSelected ? 2.1 : 1.6,
                                     opacity: 0.9,
                                   }}
-                                />
-                              </>
-                            )}
-                            {showLiveMapMarkers && (
-                              <Marker
-                                position={[latitude, longitude]}
+		                                />
+		                              </>
+		                            )}
+		                            {showSingleStreamFlowDirection &&
+		                              entry.flowDirectionPattern.length > 0 &&
+		                              entry.flowDirectionPattern.map((segment) => (
+		                                <Fragment key={`${stream.id}-flow-${segment.id}`}>
+		                                  <Polyline
+		                                    positions={segment.shaft}
+		                                    pathOptions={{
+		                                      color: "#f6e58d",
+		                                      weight: isSelected ? 2.2 : 1.8,
+		                                      opacity: entry.flowPatternOpacity,
+		                                    }}
+		                                  />
+		                                  <Polyline
+		                                    positions={segment.leftHead}
+		                                    pathOptions={{
+		                                      color: "#f6e58d",
+		                                      weight: isSelected ? 1.8 : 1.5,
+		                                      opacity: entry.flowPatternOpacity,
+		                                    }}
+		                                  />
+		                                  <Polyline
+		                                    positions={segment.rightHead}
+		                                    pathOptions={{
+		                                      color: "#f6e58d",
+		                                      weight: isSelected ? 1.8 : 1.5,
+		                                      opacity: entry.flowPatternOpacity,
+		                                    }}
+		                                  />
+		                                </Fragment>
+		                              ))}
+		                            {showLiveMapMarkers && (
+		                              <Marker
+		                                position={[latitude, longitude]}
                                 icon={cameraMarkerIcon}
                                 eventHandlers={{
                                   click: () => setSelectedStreamId(stream.id),
@@ -2616,7 +2826,8 @@ export default function App() {
                           </Fragment>
                         );
                       })}
-                    </MapContainer>
+                      </MapContainer>
+                    </>
                   )}
                 </div>
               </section>
@@ -2653,22 +2864,20 @@ export default function App() {
                         </p>
                       </header>
                       {selectedLiveMapEntry ? (
-                        <div className="live-selected-map-shell">
-                          <MapContainer
-                            center={selectedLiveMapPoints[0]}
-                            zoom={MAP_SELECTED_ZOOM}
-                            scrollWheelZoom
-                            className="live-selected-map-canvas"
-                          >
-                            <TileLayer
-                              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-                              subdomains="abcd"
-                              url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                            />
-                            <LiveOverviewMapViewport
-                              points={selectedLiveMapPoints}
-                              fitKey={selectedLiveStream.id}
-                            />
+                        <div className="live-selected-map-shell map-with-basemap">
+                          <MapBasemapSelector value={mapBasemap} onChange={setMapBasemap} />
+		                          <MapContainer
+		                            center={selectedLiveMapPoints[0]}
+		                            zoom={MAP_LIVE_SINGLE_POINT_ZOOM}
+		                            scrollWheelZoom
+		                            className="live-selected-map-canvas"
+		                          >
+                            <TileLayer {...mapTileLayerProps} />
+		                            <LiveOverviewMapViewport
+		                              points={selectedLiveMapPoints}
+		                              fitKey={selectedLiveStream.id}
+		                              singlePointZoom={MAP_LIVE_SINGLE_POINT_ZOOM}
+		                            />
                             <Polygon
                               positions={selectedLiveMapEntry.cameraViewPolygon}
                               pathOptions={{
@@ -2678,17 +2887,45 @@ export default function App() {
                                 weight: 1.7,
                               }}
                             />
-                            <Polyline
-                              positions={selectedLiveMapEntry.cameraOrientationLine}
-                              pathOptions={{
-                                color: "#16f2b3",
-                                weight: 2.1,
-                                opacity: 0.9,
-                              }}
-                            />
-                            <Marker
-                              position={[
-                                selectedLiveMapEntry.latitude,
+		                            <Polyline
+		                              positions={selectedLiveMapEntry.cameraOrientationLine}
+		                              pathOptions={{
+		                                color: "#16f2b3",
+		                                weight: 2.1,
+		                                opacity: 0.9,
+		                              }}
+		                            />
+		                            {selectedLiveMapEntry.flowDirectionPattern.map((segment) => (
+		                              <Fragment key={`selected-flow-${segment.id}`}>
+		                                <Polyline
+		                                  positions={segment.shaft}
+		                                  pathOptions={{
+		                                    color: "#f6e58d",
+		                                    weight: 2.2,
+		                                    opacity: selectedLiveMapEntry.flowPatternOpacity,
+		                                  }}
+		                                />
+		                                <Polyline
+		                                  positions={segment.leftHead}
+		                                  pathOptions={{
+		                                    color: "#f6e58d",
+		                                    weight: 1.8,
+		                                    opacity: selectedLiveMapEntry.flowPatternOpacity,
+		                                  }}
+		                                />
+		                                <Polyline
+		                                  positions={segment.rightHead}
+		                                  pathOptions={{
+		                                    color: "#f6e58d",
+		                                    weight: 1.8,
+		                                    opacity: selectedLiveMapEntry.flowPatternOpacity,
+		                                  }}
+		                                />
+		                              </Fragment>
+		                            ))}
+		                            <Marker
+		                              position={[
+		                                selectedLiveMapEntry.latitude,
                                 selectedLiveMapEntry.longitude,
                               ]}
                               icon={cameraMarkerIcon}
@@ -2804,9 +3041,9 @@ export default function App() {
                 />
               </label>
 
-              <label>
-                Preview Max Width (px, 0 disables resizing)
-                <input
+	              <label>
+	                Preview Max Width (px, 0 disables resizing)
+	                <input
                   type="number"
                   min={0}
                   max={1920}
@@ -2818,9 +3055,27 @@ export default function App() {
                       live_preview_max_width: Number(event.target.value),
                     }))
                   }
-                  required
-                />
-              </label>
+	                  required
+	                />
+	              </label>
+
+	              <label>
+	                Orientation Offset (deg)
+	                <input
+	                  type="number"
+	                  min={-360}
+	                  max={360}
+	                  step={0.5}
+	                  value={systemSettings.orientation_offset_deg}
+	                  onChange={(event) =>
+	                    setSystemSettings((current) => ({
+	                      ...current,
+	                      orientation_offset_deg: Number(event.target.value),
+	                    }))
+	                  }
+	                  required
+	                />
+	              </label>
 
               <label className="checkbox-row">
                 <input
@@ -2847,9 +3102,11 @@ export default function App() {
               </div>
             </form>
 
-            <p className="muted settings-note">
-              Lower FPS and width reduce Redis traffic and prevent pub/sub output buffer overflows.
-            </p>
+	            <p className="muted settings-note">
+	              Lower FPS and width reduce Redis traffic and prevent pub/sub output buffer overflows.
+	              Orientation offset rotates live map direction arrows globally for camera alignment
+	              calibration.
+	            </p>
           </section>
         </main>
       )}

@@ -74,12 +74,14 @@ class SystemSettingsBase(BaseModel):
     live_preview_fps: float = Field(default=6.0, ge=0.5, le=30.0)
     live_preview_jpeg_quality: int = Field(default=65, ge=30, le=95)
     live_preview_max_width: int = Field(default=960, ge=0, le=1920)
+    orientation_offset_deg: float = Field(default=0.0, ge=-360.0, le=360.0)
 
 
 class SystemSettingsUpdate(BaseModel):
     live_preview_fps: Optional[float] = Field(default=None, ge=0.5, le=30.0)
     live_preview_jpeg_quality: Optional[int] = Field(default=None, ge=30, le=95)
     live_preview_max_width: Optional[int] = Field(default=None, ge=0, le=1920)
+    orientation_offset_deg: Optional[float] = Field(default=None, ge=-360.0, le=360.0)
     restart_workers: bool = True
 
 

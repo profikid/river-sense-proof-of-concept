@@ -207,6 +207,7 @@ OpenAPI docs:
 - `live_preview_fps` global worker frame publish cap
 - `live_preview_jpeg_quality` global preview compression quality
 - `live_preview_max_width` global preview resize cap (0 disables resize)
+- `orientation_offset_deg` global direction-to-map calibration offset
 - `updated_at` last settings update timestamp
 
 ## Prometheus Metrics
@@ -265,8 +266,9 @@ Use `/settings` to control global live preview throughput:
 - `live_preview_fps`: publish cap per worker stream (default `6.0` FPS)
 - `live_preview_jpeg_quality`: JPEG quality for frame payloads (default `65`)
 - `live_preview_max_width`: resize cap before publish (`0` disables resizing, default `960`)
+- `orientation_offset_deg`: global offset applied to live map direction arrows (default `0`)
 
-Saving these settings can restart active workers so new limits apply immediately.
+Saving throughput settings can restart active workers so new limits apply immediately.
 The API frame broker also applies the same FPS cap when fan-out broadcasting to WebSocket clients.
 
 ### Grafana Alerts

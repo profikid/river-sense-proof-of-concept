@@ -132,6 +132,17 @@ const LIVE_LAYOUT_OPTIONS = [
   { value: "list", label: "List" },
   { value: "map", label: "Map" },
 ];
+const DEFAULT_LIVE_NAME_FILTER = "";
+const DEFAULT_LIVE_STATUS_FILTER = "all";
+const DEFAULT_LIVE_LAYOUT = "grid";
+const DEFAULT_LIVE_SORT_FIELD = "name";
+const DEFAULT_LIVE_SORT_ORDER = "asc";
+const DEFAULT_LIVE_MAP_COLOR_METRIC = "avg_magnitude";
+const DEFAULT_LIVE_MAP_LAYERS = [
+  "camera_markers",
+  "camera_cones",
+  "heatmap",
+];
 
 const MAP_BASEMAP_OPTIONS = [
   {
@@ -194,6 +205,38 @@ function normalizeDashboardRange(value) {
   return isValid ? candidate : DEFAULT_DASHBOARD_RANGE;
 }
 
+function normalizeOptionValue(value, options, fallback) {
+  const candidate = String(value || "").trim();
+  if (!candidate) {
+    return fallback;
+  }
+  return options.some((option) => option.value === candidate) ? candidate : fallback;
+}
+
+function normalizeLiveSortOrder(value) {
+  const candidate = String(value || "").trim().toLowerCase();
+  return candidate === "desc" ? "desc" : DEFAULT_LIVE_SORT_ORDER;
+}
+
+function normalizeLiveMapLayers(value) {
+  const allowed = new Set(LIVE_MAP_LAYER_OPTIONS.map((option) => option.value));
+  const requested = String(value || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => allowed.has(entry));
+  if (requested.length === 0) {
+    return [...DEFAULT_LIVE_MAP_LAYERS];
+  }
+  const requestedSet = new Set(requested);
+  return LIVE_MAP_LAYER_OPTIONS.map((option) => option.value).filter((entry) =>
+    requestedSet.has(entry)
+  );
+}
+
+function normalizeMapBasemap(value) {
+  return normalizeOptionValue(value, MAP_BASEMAP_OPTIONS, DEFAULT_MAP_BASEMAP);
+}
+
 function normalizeHttpBase(value) {
   return value.replace(/\/+$/, "");
 }
@@ -217,14 +260,60 @@ function parseLocationState() {
   }
   const selected = url.searchParams.get("stream");
   const dashboardRange = normalizeDashboardRange(url.searchParams.get("range"));
+  const liveNameFilter = String(url.searchParams.get("live_name") || DEFAULT_LIVE_NAME_FILTER);
+  const liveStatusFilter = normalizeOptionValue(
+    url.searchParams.get("live_status"),
+    LIVE_STATUS_FILTER_OPTIONS,
+    DEFAULT_LIVE_STATUS_FILTER
+  );
+  const liveLayout = normalizeOptionValue(
+    url.searchParams.get("live_layout"),
+    LIVE_LAYOUT_OPTIONS,
+    DEFAULT_LIVE_LAYOUT
+  );
+  const liveSortField = normalizeOptionValue(
+    url.searchParams.get("live_sort_field"),
+    LIVE_SORT_FIELD_OPTIONS,
+    DEFAULT_LIVE_SORT_FIELD
+  );
+  const liveSortOrder = normalizeLiveSortOrder(url.searchParams.get("live_sort_order"));
+  const liveMapColorMetric = normalizeOptionValue(
+    url.searchParams.get("live_map_color"),
+    LIVE_MAP_COLOR_OPTIONS,
+    DEFAULT_LIVE_MAP_COLOR_METRIC
+  );
+  const liveMapLayers = normalizeLiveMapLayers(url.searchParams.get("live_map_layers"));
+  const mapBasemap = normalizeMapBasemap(url.searchParams.get("basemap"));
   return {
     view,
     selectedStreamId: selected && selected.trim() ? selected : null,
     dashboardRange,
+    liveNameFilter,
+    liveStatusFilter,
+    liveLayout,
+    liveSortField,
+    liveSortOrder,
+    liveMapColorMetric,
+    liveMapLayers,
+    mapBasemap,
   };
 }
 
-function buildLocation(view, selectedStreamId, dashboardRange) {
+function buildLocation(
+  view,
+  selectedStreamId,
+  dashboardRange,
+  {
+    liveNameFilter = DEFAULT_LIVE_NAME_FILTER,
+    liveStatusFilter = DEFAULT_LIVE_STATUS_FILTER,
+    liveLayout = DEFAULT_LIVE_LAYOUT,
+    liveSortField = DEFAULT_LIVE_SORT_FIELD,
+    liveSortOrder = DEFAULT_LIVE_SORT_ORDER,
+    liveMapColorMetric = DEFAULT_LIVE_MAP_COLOR_METRIC,
+    liveMapLayers = DEFAULT_LIVE_MAP_LAYERS,
+    mapBasemap = DEFAULT_MAP_BASEMAP,
+  } = {}
+) {
   const pathname =
     view === "dashboard"
       ? "/dashboard"
@@ -241,6 +330,38 @@ function buildLocation(view, selectedStreamId, dashboardRange) {
   if (normalizedRange !== DEFAULT_DASHBOARD_RANGE) {
     params.set("range", normalizedRange);
   }
+  const normalizedNameFilter = String(liveNameFilter || "");
+  if (normalizedNameFilter) {
+    params.set("live_name", normalizedNameFilter);
+  }
+  params.set(
+    "live_status",
+    normalizeOptionValue(liveStatusFilter, LIVE_STATUS_FILTER_OPTIONS, DEFAULT_LIVE_STATUS_FILTER)
+  );
+  params.set(
+    "live_layout",
+    normalizeOptionValue(liveLayout, LIVE_LAYOUT_OPTIONS, DEFAULT_LIVE_LAYOUT)
+  );
+  params.set(
+    "live_sort_field",
+    normalizeOptionValue(liveSortField, LIVE_SORT_FIELD_OPTIONS, DEFAULT_LIVE_SORT_FIELD)
+  );
+  params.set("live_sort_order", normalizeLiveSortOrder(liveSortOrder));
+  params.set(
+    "live_map_color",
+    normalizeOptionValue(
+      liveMapColorMetric,
+      LIVE_MAP_COLOR_OPTIONS,
+      DEFAULT_LIVE_MAP_COLOR_METRIC
+    )
+  );
+  params.set(
+    "live_map_layers",
+    normalizeLiveMapLayers(
+      Array.isArray(liveMapLayers) ? liveMapLayers.join(",") : liveMapLayers
+    ).join(",")
+  );
+  params.set("basemap", normalizeMapBasemap(mapBasemap));
   const query = params.toString();
   return `${pathname}${query ? `?${query}` : ""}`;
 }
@@ -580,6 +701,14 @@ function statusDotTooltip(stream) {
   return label;
 }
 
+function isConnectedStream(stream) {
+  return (stream?.connection_status || "unknown") === "connected";
+}
+
+function requiresConnectedDeactivationWarning(stream) {
+  return !!stream?.is_active && isConnectedStream(stream);
+}
+
 function toFixedValue(value, digits, fallback = "0.0") {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
@@ -789,20 +918,16 @@ export default function App() {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
-  const [liveNameFilter, setLiveNameFilter] = useState("");
-  const [liveStatusFilter, setLiveStatusFilter] = useState("all");
-  const [liveLayout, setLiveLayout] = useState("grid");
-  const [liveSortField, setLiveSortField] = useState("name");
-  const [liveSortOrder, setLiveSortOrder] = useState("asc");
-  const [liveMapColorMetric, setLiveMapColorMetric] = useState("avg_magnitude");
-  const [liveMapLayers, setLiveMapLayers] = useState([
-    "camera_markers",
-    "camera_cones",
-    "heatmap",
-  ]);
+  const [liveNameFilter, setLiveNameFilter] = useState(initialLocation.liveNameFilter);
+  const [liveStatusFilter, setLiveStatusFilter] = useState(initialLocation.liveStatusFilter);
+  const [liveLayout, setLiveLayout] = useState(initialLocation.liveLayout);
+  const [liveSortField, setLiveSortField] = useState(initialLocation.liveSortField);
+  const [liveSortOrder, setLiveSortOrder] = useState(initialLocation.liveSortOrder);
+  const [liveMapColorMetric, setLiveMapColorMetric] = useState(initialLocation.liveMapColorMetric);
+  const [liveMapLayers, setLiveMapLayers] = useState(initialLocation.liveMapLayers);
   const [liveMapLayersOpen, setLiveMapLayersOpen] = useState(false);
   const [liveMapFitKey, setLiveMapFitKey] = useState(0);
-  const [mapBasemap, setMapBasemap] = useState(DEFAULT_MAP_BASEMAP);
+  const [mapBasemap, setMapBasemap] = useState(initialLocation.mapBasemap);
   const [locationQuery, setLocationQuery] = useState("");
   const [locationSearching, setLocationSearching] = useState(false);
   const [locationResolvingPoint, setLocationResolvingPoint] = useState(false);
@@ -811,9 +936,11 @@ export default function App() {
   const [locationSearchResults, setLocationSearchResults] = useState([]);
   const [streamComboboxOpen, setStreamComboboxOpen] = useState(false);
   const [streamComboboxSearch, setStreamComboboxSearch] = useState("");
+  const [deactivationConfirmStream, setDeactivationConfirmStream] = useState(null);
 
   const streamComboboxRef = useRef(null);
   const streamComboboxSearchRef = useRef(null);
+  const deactivationConfirmResolverRef = useRef(null);
   const cameraAngleVisualRef = useRef(null);
   const cameraAngleVisualDraggingRef = useRef(false);
   const canvasRef = useRef(null);
@@ -963,7 +1090,16 @@ export default function App() {
     if (nextView === currentView) {
       return;
     }
-    const nextLocation = buildLocation(nextView, selectedStreamId, dashboardRange);
+    const nextLocation = buildLocation(nextView, selectedStreamId, dashboardRange, {
+      liveNameFilter,
+      liveStatusFilter,
+      liveLayout,
+      liveSortField,
+      liveSortOrder,
+      liveMapColorMetric,
+      liveMapLayers,
+      mapBasemap,
+    });
     window.history.pushState(null, "", nextLocation);
     setCurrentView(nextView);
   };
@@ -1002,6 +1138,14 @@ export default function App() {
       setCurrentView(locationState.view);
       setSelectedStreamId(locationState.selectedStreamId);
       setDashboardRange(locationState.dashboardRange);
+      setLiveNameFilter(locationState.liveNameFilter);
+      setLiveStatusFilter(locationState.liveStatusFilter);
+      setLiveLayout(locationState.liveLayout);
+      setLiveSortField(locationState.liveSortField);
+      setLiveSortOrder(locationState.liveSortOrder);
+      setLiveMapColorMetric(locationState.liveMapColorMetric);
+      setLiveMapLayers(locationState.liveMapLayers);
+      setMapBasemap(locationState.mapBasemap);
     };
 
     window.addEventListener("popstate", syncFromLocation);
@@ -1009,12 +1153,33 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const nextLocation = buildLocation(currentView, selectedStreamId, dashboardRange);
+    const nextLocation = buildLocation(currentView, selectedStreamId, dashboardRange, {
+      liveNameFilter,
+      liveStatusFilter,
+      liveLayout,
+      liveSortField,
+      liveSortOrder,
+      liveMapColorMetric,
+      liveMapLayers,
+      mapBasemap,
+    });
     const currentLocation = `${window.location.pathname}${window.location.search}`;
     if (nextLocation !== currentLocation) {
       window.history.replaceState(null, "", nextLocation);
     }
-  }, [currentView, selectedStreamId, dashboardRange]);
+  }, [
+    currentView,
+    selectedStreamId,
+    dashboardRange,
+    liveNameFilter,
+    liveStatusFilter,
+    liveLayout,
+    liveSortField,
+    liveSortOrder,
+    liveMapColorMetric,
+    liveMapLayers,
+    mapBasemap,
+  ]);
 
   useEffect(() => {
     const run = async () => {
@@ -1319,13 +1484,62 @@ export default function App() {
     setEditingId(null);
   };
 
+  const requestConnectedDeactivationConfirm = (stream) => {
+    if (!requiresConnectedDeactivationWarning(stream)) {
+      return Promise.resolve(true);
+    }
+
+    return new Promise((resolve) => {
+      if (deactivationConfirmResolverRef.current) {
+        deactivationConfirmResolverRef.current(false);
+      }
+      deactivationConfirmResolverRef.current = resolve;
+      setDeactivationConfirmStream({
+        id: stream.id,
+        name: stream.name || `Stream ${stream.id}`,
+      });
+    });
+  };
+
+  const resolveConnectedDeactivationConfirm = (proceed) => {
+    if (deactivationConfirmResolverRef.current) {
+      deactivationConfirmResolverRef.current(proceed);
+      deactivationConfirmResolverRef.current = null;
+    }
+    setDeactivationConfirmStream(null);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (deactivationConfirmResolverRef.current) {
+        deactivationConfirmResolverRef.current(false);
+        deactivationConfirmResolverRef.current = null;
+      }
+    };
+  }, []);
+
   const handleSubmit = async (event) => {
     event.preventDefault();
-    setBusy(true);
     setError("");
     setNotice("");
 
     const payload = buildPayload(form);
+    const editingStream = editingId
+      ? streams.find((stream) => stream.id === editingId) || null
+      : null;
+    if (
+      editingStream &&
+      editingStream.is_active &&
+      !payload.is_active &&
+      requiresConnectedDeactivationWarning(editingStream)
+    ) {
+      const confirmed = await requestConnectedDeactivationConfirm(editingStream);
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setBusy(true);
 
     try {
       if (editingId) {
@@ -1684,6 +1898,11 @@ export default function App() {
   };
 
   const handleToggle = async (stream) => {
+    const confirmed = await requestConnectedDeactivationConfirm(stream);
+    if (!confirmed) {
+      return;
+    }
+
     setBusy(true);
     setError("");
     setNotice("");
@@ -1730,7 +1949,16 @@ export default function App() {
 
   const handleEditFromLive = (stream) => {
     handleSelectStream(stream);
-    const nextLocation = buildLocation("config", stream.id, dashboardRange);
+    const nextLocation = buildLocation("config", stream.id, dashboardRange, {
+      liveNameFilter,
+      liveStatusFilter,
+      liveLayout,
+      liveSortField,
+      liveSortOrder,
+      liveMapColorMetric,
+      liveMapLayers,
+      mapBasemap,
+    });
     window.history.pushState(null, "", nextLocation);
     setCurrentView("config");
   };
@@ -2177,7 +2405,7 @@ export default function App() {
               className={`btn tiny ${currentView === "config" ? "primary active" : ""}`}
               onClick={() => switchView("config")}
             >
-              Stream Config
+              {selectedStream ? `Tune Stream: ${selectedStream.name}` : "Create Stream"}
             </button>
             <button
               type="button"
@@ -2301,6 +2529,14 @@ export default function App() {
               <div className="header-selected-stream-actions">
                 <button
                   type="button"
+                  className="btn tiny ghost"
+                  disabled={busy}
+                  onClick={handleClearStreamSelection}
+                >
+                  Clear Selection
+                </button>
+                <button
+                  type="button"
                   className="btn tiny"
                   disabled={busy}
                   onClick={() => handleToggle(selectedStream)}
@@ -2340,7 +2576,7 @@ export default function App() {
 
               <div className="config-section">
                 <h3>Location</h3>
-                <div className="location-layout">
+                <div className={`location-layout ${editingId ? "is-editing" : "is-creating"}`}>
                   <div className="location-form-pane">
                     <div className="location-search-shell">
                       <label>
@@ -2684,14 +2920,6 @@ export default function App() {
 
             <div className="section-title-row">
               <h2>Stream Fleet</h2>
-              <button
-                type="button"
-                className="btn tiny ghost"
-                disabled={!selectedStream}
-                onClick={handleClearStreamSelection}
-              >
-                Clear Selection
-              </button>
             </div>
             <div className="stream-list">
               {streams.length === 0 && <p className="muted">No streams configured yet.</p>}
@@ -3449,6 +3677,43 @@ export default function App() {
 	            </p>
           </section>
         </main>
+      )}
+      {deactivationConfirmStream && (
+        <div
+          className="deactivation-confirm-backdrop"
+          role="presentation"
+          onClick={() => resolveConnectedDeactivationConfirm(false)}
+        >
+          <div
+            className="deactivation-confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="deactivation-confirm-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="deactivation-confirm-title">Deactivate connected stream?</h3>
+            <p>
+              <strong>{deactivationConfirmStream.name}</strong> is connected right now. Proceeding will
+              stop processing and disconnect this stream.
+            </p>
+            <div className="deactivation-confirm-actions">
+              <button
+                type="button"
+                className="btn tiny ghost"
+                onClick={() => resolveConnectedDeactivationConfirm(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn tiny danger"
+                onClick={() => resolveConnectedDeactivationConfirm(true)}
+              >
+                Proceed
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

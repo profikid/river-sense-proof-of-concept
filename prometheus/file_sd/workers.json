@@ -28,20 +28,29 @@
   },
   {
     "targets": [
+      "vector-worker-34574dca3d71:9100"
+    ],
+    "labels": {
+      "stream_id": "34574dca-3d71-4a3a-959c-67b51240e240",
+      "stream_name": "something else motion trail"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-a59cab3b5630:9100"
+    ],
+    "labels": {
+      "stream_id": "a59cab3b-5630-4dad-9bb6-ad39cf981192",
+      "stream_name": "koh phangan"
+    }
+  },
+  {
+    "targets": [
       "vector-worker-4ba301001829:9100"
     ],
     "labels": {
       "stream_id": "4ba30100-1829-4617-8bbf-7ef3c8389f73",
       "stream_name": "another stream"
-    }
-  },
-  {
-    "targets": [
-      "vector-worker-1e48d34021dd:9100"
-    ],
-    "labels": {
-      "stream_id": "1e48d340-21dd-466e-b805-49d2b23b21bb",
-      "stream_name": "aaaaaaaaa"
     }
   },
   {
@@ -109,11 +118,11 @@
   },
   {
     "targets": [
-      "vector-worker-d3db111e67b3:9100"
+      "vector-worker-1e48d34021dd:9100"
     ],
     "labels": {
-      "stream_id": "d3db111e-67b3-46ee-93d7-fd285eddd75d",
-      "stream_name": "smoketest"
+      "stream_id": "1e48d340-21dd-466e-b805-49d2b23b21bb",
+      "stream_name": "aaaaaaaaa"
     }
   },
   {

@@ -292,6 +292,67 @@ textarea {
   gap: 0.45rem;
 }
 
+.delete-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1410;
+  background: rgba(11, 3, 4, 0.72);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.delete-confirm-dialog {
+  width: min(460px, 100%);
+  border-radius: 13px;
+  border: 1px solid rgba(255, 111, 97, 0.48);
+  background: linear-gradient(155deg, rgba(42, 18, 20, 0.98), rgba(24, 10, 14, 0.98));
+  box-shadow: 0 34px 42px -24px rgba(0, 0, 0, 0.88);
+  padding: 0.95rem;
+  display: grid;
+  gap: 0.72rem;
+}
+
+.delete-confirm-dialog h3 {
+  margin: 0;
+  color: #ff988d;
+  letter-spacing: 0.04em;
+  font-size: 0.96rem;
+}
+
+.delete-confirm-dialog p {
+  margin: 0;
+  color: #f0c9c4;
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.delete-confirm-dialog strong {
+  color: #ffe6e2;
+}
+
+.delete-confirm-warning {
+  color: #ffb3aa;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.delete-confirm-meta {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.delete-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
 .app-grid {
   display: grid;
   grid-template-columns: minmax(320px, 430px) 1fr;
@@ -1691,6 +1752,10 @@ input:focus {
   grid-template-columns: minmax(290px, 0.95fr) minmax(360px, 1.35fr);
   gap: 0.75rem;
   align-items: start;
+}
+
+.live-selected-split.live-selected-map-top {
+  grid-template-columns: minmax(320px, 1fr) minmax(380px, 1.2fr);
 }
 
 .live-selected-location-panel,

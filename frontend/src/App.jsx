@@ -937,10 +937,12 @@ export default function App() {
   const [streamComboboxOpen, setStreamComboboxOpen] = useState(false);
   const [streamComboboxSearch, setStreamComboboxSearch] = useState("");
   const [deactivationConfirmStream, setDeactivationConfirmStream] = useState(null);
+  const [deleteConfirmStream, setDeleteConfirmStream] = useState(null);
 
   const streamComboboxRef = useRef(null);
   const streamComboboxSearchRef = useRef(null);
   const deactivationConfirmResolverRef = useRef(null);
+  const deleteConfirmResolverRef = useRef(null);
   const cameraAngleVisualRef = useRef(null);
   const cameraAngleVisualDraggingRef = useRef(false);
   const canvasRef = useRef(null);
@@ -1509,11 +1511,38 @@ export default function App() {
     setDeactivationConfirmStream(null);
   };
 
+  const requestDeleteConfirm = (stream) =>
+    new Promise((resolve) => {
+      if (deleteConfirmResolverRef.current) {
+        deleteConfirmResolverRef.current(false);
+      }
+      deleteConfirmResolverRef.current = resolve;
+      setDeleteConfirmStream({
+        id: stream.id,
+        name: stream.name || `Stream ${stream.id}`,
+        statusLabel: statusLabel(stream),
+        statusClass: statusClass(stream),
+        isActive: !!stream.is_active,
+      });
+    });
+
+  const resolveDeleteConfirm = (proceed) => {
+    if (deleteConfirmResolverRef.current) {
+      deleteConfirmResolverRef.current(proceed);
+      deleteConfirmResolverRef.current = null;
+    }
+    setDeleteConfirmStream(null);
+  };
+
   useEffect(() => {
     return () => {
       if (deactivationConfirmResolverRef.current) {
         deactivationConfirmResolverRef.current(false);
         deactivationConfirmResolverRef.current = null;
+      }
+      if (deleteConfirmResolverRef.current) {
+        deleteConfirmResolverRef.current(false);
+        deleteConfirmResolverRef.current = null;
       }
     };
   }, []);
@@ -1922,7 +1951,8 @@ export default function App() {
   };
 
   const handleDelete = async (stream) => {
-    if (!window.confirm(`Delete stream "${stream.name}"?`)) {
+    const confirmed = await requestDeleteConfirm(stream);
+    if (!confirmed) {
       return;
     }
 
@@ -2390,6 +2420,116 @@ export default function App() {
           </button>
         </div>
       </article>
+    );
+  };
+
+  const renderSelectedLiveSection = () => {
+    if (!selectedLiveStream) {
+      return null;
+    }
+
+    return (
+      <section
+        className={`live-featured-section live-selected-split ${isLiveMapLayout ? "live-selected-map-top" : ""}`.trim()}
+      >
+        <article className="live-selected-location-panel">
+          <header className="live-selected-panel-header">
+            <h3>Selected Location</h3>
+            <p className="muted">
+              {normalizeLocationName(selectedLiveStream.location_name) ||
+                (selectedLiveMapEntry
+                  ? `${toFixedValue(selectedLiveMapEntry.latitude, 4, "0.0000")}, ${toFixedValue(selectedLiveMapEntry.longitude, 4, "0.0000")}`
+                  : "No coordinates configured")}
+            </p>
+          </header>
+          {selectedLiveMapEntry ? (
+            <div className="live-selected-map-shell map-with-basemap">
+              <MapBasemapSelector value={mapBasemap} onChange={setMapBasemap} />
+              <MapContainer
+                center={selectedLiveMapPoints[0]}
+                zoom={MAP_LIVE_SINGLE_POINT_ZOOM}
+                scrollWheelZoom
+                className="live-selected-map-canvas"
+              >
+                <TileLayer {...mapTileLayerProps} />
+                <LiveOverviewMapViewport
+                  points={selectedLiveMapPoints}
+                  fitKey={selectedLiveStream.id}
+                  singlePointZoom={MAP_LIVE_SINGLE_POINT_ZOOM}
+                />
+                <Polygon
+                  positions={selectedLiveMapEntry.cameraViewPolygon}
+                  pathOptions={{
+                    color: "#16f2b3",
+                    fillColor: "#16f2b3",
+                    fillOpacity: 0.2,
+                    weight: 1.7,
+                  }}
+                />
+                <Polyline
+                  positions={selectedLiveMapEntry.cameraOrientationLine}
+                  pathOptions={{
+                    color: "#16f2b3",
+                    weight: 2.1,
+                    opacity: 0.9,
+                  }}
+                />
+                {selectedLiveMapEntry.flowDirectionPattern.map((segment) => (
+                  <Fragment key={`selected-flow-${segment.id}`}>
+                    <Polyline
+                      positions={segment.shaft}
+                      pathOptions={{
+                        color: "#f6e58d",
+                        weight: 2.2,
+                        opacity: selectedLiveMapEntry.flowPatternOpacity,
+                      }}
+                    />
+                    <Polyline
+                      positions={segment.leftHead}
+                      pathOptions={{
+                        color: "#f6e58d",
+                        weight: 1.8,
+                        opacity: selectedLiveMapEntry.flowPatternOpacity,
+                      }}
+                    />
+                    <Polyline
+                      positions={segment.rightHead}
+                      pathOptions={{
+                        color: "#f6e58d",
+                        weight: 1.8,
+                        opacity: selectedLiveMapEntry.flowPatternOpacity,
+                      }}
+                    />
+                  </Fragment>
+                ))}
+                <Marker
+                  position={[
+                    selectedLiveMapEntry.latitude,
+                    selectedLiveMapEntry.longitude,
+                  ]}
+                  icon={cameraMarkerIcon}
+                >
+                  <Tooltip direction="top" offset={[0, -14]} opacity={0.9}>
+                    {selectedLiveStream.name}
+                  </Tooltip>
+                </Marker>
+              </MapContainer>
+            </div>
+          ) : (
+            <div className="live-selected-map-empty">
+              <p className="muted">
+                Set latitude and longitude in Stream Config to show the location.
+              </p>
+            </div>
+          )}
+        </article>
+        <article className="live-selected-preview-panel">
+          <header className="live-selected-panel-header">
+            <h3>Selected Preview</h3>
+          </header>
+          {renderLiveCard(selectedLiveStream, { featured: true })}
+        </article>
+      </section>
     );
   };
 
@@ -2918,64 +3058,6 @@ export default function App() {
             {notice && <p className="notice">{notice}</p>}
             {error && <p className="error">{error}</p>}
 
-            <div className="section-title-row">
-              <h2>Stream Fleet</h2>
-            </div>
-            <div className="stream-list">
-              {streams.length === 0 && <p className="muted">No streams configured yet.</p>}
-              {streams.map((stream) => (
-                <article
-                  key={stream.id}
-                  className={`stream-item ${statusClass(stream)} ${selectedStreamId === stream.id ? "selected" : ""}`}
-                >
-                  <button
-                    type="button"
-                    className="stream-title"
-                    onClick={() => handleSelectStream(stream)}
-                  >
-                    <span>{stream.name}</span>
-                    <span className={`status ${statusClass(stream)}`}>
-                      {statusLabel(stream)}
-                    </span>
-                  </button>
-
-                  <div className="stream-meta">
-                    <span>Grid {stream.grid_size}</span>
-                    <span>Win {stream.win_radius}</span>
-                    <span>Thr {stream.threshold}</span>
-                    <span>Cam {toFixedValue(stream.orientation_deg, 0, "0")}deg</span>
-                    <span>Worker {stream.worker_status}</span>
-                    <span>
-                      {stream.latitude !== null &&
-                        stream.longitude !== null &&
-                        Number.isFinite(Number(stream.latitude)) &&
-                        Number.isFinite(Number(stream.longitude))
-                        ? `${normalizeLocationName(stream.location_name) || "Unnamed location"
-                        } · Lat ${toFixedValue(stream.latitude, 4)} · Lon ${toFixedValue(stream.longitude, 4)}`
-                        : "Location unset"}
-                    </span>
-                  </div>
-                  {stream.last_error && <p className="stream-error">{stream.last_error}</p>}
-
-                  <div className="row actions">
-                    <button
-                      disabled={busy}
-                      className="btn tiny"
-                      onClick={() => handleToggle(stream)}
-                    >
-                      {stream.is_active ? "Deactivate" : "Activate"}
-                    </button>
-                    <button
-                      disabled={busy}
-                      className="btn tiny danger"
-                      onClick={() => handleDelete(stream)}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
           </section>
 
           {selectedStream && (
@@ -3183,6 +3265,7 @@ export default function App() {
 	            </div>
 
             {error && <p className="error">{error}</p>}
+            {renderSelectedLiveSection()}
             {streams.length === 0 ? (
               <p className="muted">No streams configured yet.</p>
             ) : liveFilteredStreams.length === 0 ? (
@@ -3418,108 +3501,6 @@ export default function App() {
                     )}
                   </>
                 )}
-
-                {selectedLiveStream && (
-                  <section className="live-featured-section live-selected-split">
-                    <article className="live-selected-location-panel">
-                      <header className="live-selected-panel-header">
-                        <h3>Selected Location</h3>
-                        <p className="muted">
-                          {normalizeLocationName(selectedLiveStream.location_name) ||
-                            (selectedLiveMapEntry
-                              ? `${toFixedValue(selectedLiveMapEntry.latitude, 4, "0.0000")}, ${toFixedValue(selectedLiveMapEntry.longitude, 4, "0.0000")}`
-                              : "No coordinates configured")}
-                        </p>
-                      </header>
-                      {selectedLiveMapEntry ? (
-                        <div className="live-selected-map-shell map-with-basemap">
-                          <MapBasemapSelector value={mapBasemap} onChange={setMapBasemap} />
-		                          <MapContainer
-		                            center={selectedLiveMapPoints[0]}
-		                            zoom={MAP_LIVE_SINGLE_POINT_ZOOM}
-		                            scrollWheelZoom
-		                            className="live-selected-map-canvas"
-		                          >
-                            <TileLayer {...mapTileLayerProps} />
-		                            <LiveOverviewMapViewport
-		                              points={selectedLiveMapPoints}
-		                              fitKey={selectedLiveStream.id}
-		                              singlePointZoom={MAP_LIVE_SINGLE_POINT_ZOOM}
-		                            />
-                            <Polygon
-                              positions={selectedLiveMapEntry.cameraViewPolygon}
-                              pathOptions={{
-                                color: "#16f2b3",
-                                fillColor: "#16f2b3",
-                                fillOpacity: 0.2,
-                                weight: 1.7,
-                              }}
-                            />
-		                            <Polyline
-		                              positions={selectedLiveMapEntry.cameraOrientationLine}
-		                              pathOptions={{
-		                                color: "#16f2b3",
-		                                weight: 2.1,
-		                                opacity: 0.9,
-		                              }}
-		                            />
-		                            {selectedLiveMapEntry.flowDirectionPattern.map((segment) => (
-		                              <Fragment key={`selected-flow-${segment.id}`}>
-		                                <Polyline
-		                                  positions={segment.shaft}
-		                                  pathOptions={{
-		                                    color: "#f6e58d",
-		                                    weight: 2.2,
-		                                    opacity: selectedLiveMapEntry.flowPatternOpacity,
-		                                  }}
-		                                />
-		                                <Polyline
-		                                  positions={segment.leftHead}
-		                                  pathOptions={{
-		                                    color: "#f6e58d",
-		                                    weight: 1.8,
-		                                    opacity: selectedLiveMapEntry.flowPatternOpacity,
-		                                  }}
-		                                />
-		                                <Polyline
-		                                  positions={segment.rightHead}
-		                                  pathOptions={{
-		                                    color: "#f6e58d",
-		                                    weight: 1.8,
-		                                    opacity: selectedLiveMapEntry.flowPatternOpacity,
-		                                  }}
-		                                />
-		                              </Fragment>
-		                            ))}
-		                            <Marker
-		                              position={[
-		                                selectedLiveMapEntry.latitude,
-                                selectedLiveMapEntry.longitude,
-                              ]}
-                              icon={cameraMarkerIcon}
-                            >
-                              <Tooltip direction="top" offset={[0, -14]} opacity={0.9}>
-                                {selectedLiveStream.name}
-                              </Tooltip>
-                            </Marker>
-                          </MapContainer>
-                        </div>
-                      ) : (
-                        <div className="live-selected-map-empty">
-                          <p className="muted">
-                            Set latitude and longitude in Stream Config to show the location.
-                          </p>
-                        </div>
-                      )}
-                    </article>
-                    <article className="live-selected-preview-panel">
-                      <header className="live-selected-panel-header">
-                        <h3>Selected Preview</h3>
-                      </header>
-                      {renderLiveCard(selectedLiveStream, { featured: true })}
-                    </article>
-                  </section>
-                )}
               </>
             )}
           </section>
@@ -3710,6 +3691,52 @@ export default function App() {
                 onClick={() => resolveConnectedDeactivationConfirm(true)}
               >
                 Proceed
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {deleteConfirmStream && (
+        <div
+          className="delete-confirm-backdrop"
+          role="presentation"
+          onClick={() => resolveDeleteConfirm(false)}
+        >
+          <div
+            className="delete-confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-confirm-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="delete-confirm-title">Delete stream permanently?</h3>
+            <p className="delete-confirm-warning">This action cannot be undone.</p>
+            <p>
+              <strong>{deleteConfirmStream.name}</strong> will be removed from fleet configuration and
+              its worker will be stopped.
+            </p>
+            <div className="delete-confirm-meta">
+              <span className={`status ${deleteConfirmStream.statusClass}`}>
+                {deleteConfirmStream.statusLabel}
+              </span>
+              <span className={`status ${deleteConfirmStream.isActive ? "active" : "inactive"}`}>
+                {deleteConfirmStream.isActive ? "active" : "inactive"}
+              </span>
+            </div>
+            <div className="delete-confirm-actions">
+              <button
+                type="button"
+                className="btn tiny ghost"
+                onClick={() => resolveDeleteConfirm(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn tiny danger"
+                onClick={() => resolveDeleteConfirm(true)}
+              >
+                Delete Stream
               </button>
             </div>
           </div>

@@ -1090,16 +1090,9 @@
       },
       "id": 14,
       "options": {
-        "displayLabels": [
-          "name",
-          "percent"
-        ],
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": false
-        },
-        "pieType": "donut",
+        "displayMode": "basic",
+        "namePlacement": "left",
+        "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -1107,23 +1100,42 @@
           "fields": "",
           "values": false
         },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
+        "showUnfilled": true,
+        "valueMode": "color"
       },
       "pluginVersion": "11.2.0",
       "targets": [
         {
           "editorMode": "code",
-          "expr": "vector_flow_streams_by_state",
-          "legendFormat": "{{state}}",
+          "expr": "max(vector_flow_streams_by_state{state=\"connected\"}) or vector(0)",
+          "legendFormat": "Current Stream",
           "range": true,
           "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "max(vector_flow_streams_by_state{state=\"error\"}) or vector(0)",
+          "legendFormat": "Error",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "editorMode": "code",
+          "expr": "max(vector_flow_streams_by_state{state=\"starting\"}) or vector(0)",
+          "legendFormat": "Starting",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "editorMode": "code",
+          "expr": "max(vector_flow_streams_by_state{state=\"inactive\"}) or vector(0)",
+          "legendFormat": "Inactive",
+          "range": true,
+          "refId": "D"
         }
       ],
-      "title": "Stream State Distribution",
-      "type": "piechart"
+      "title": "Stream State Histogram",
+      "type": "bargauge"
     },
     {
       "datasource": {

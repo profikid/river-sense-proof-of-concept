@@ -218,9 +218,11 @@ def resolve_stream_status(stream: CameraStream) -> tuple[str, str, Optional[str]
 
 def classify_dashboard_state(stream: CameraStream, connection_status: str) -> str:
     if not stream.is_active:
-        return "deactivated"
+        return "inactive"
     if connection_status in {"connected", "ok"}:
-        return "running"
+        return "connected"
+    if connection_status in {"starting", "unknown"}:
+        return "starting"
     return "error"
 
 
@@ -583,16 +585,23 @@ def metrics(db: Session = Depends(get_db)) -> Response:
     total_streams = len(streams)
     active_streams = sum(1 for stream in streams if stream.is_active)
 
-    state_counts = {"running": 0, "deactivated": 0, "error": 0}
+    state_counts = {"connected": 0, "error": 0, "starting": 0, "inactive": 0}
+    legacy_state_counts = {"running": 0, "deactivated": 0}
     for stream in streams:
         _, connection_status, _, _ = resolve_stream_status(stream)
         state = classify_dashboard_state(stream, connection_status)
         state_counts[state] += 1
+        if state == "connected":
+            legacy_state_counts["running"] += 1
+        elif state == "inactive":
+            legacy_state_counts["deactivated"] += 1
 
     managed_streams_metric.set(total_streams)
     active_streams_metric.set(active_streams)
-    running_streams_metric.set(state_counts["running"])
+    running_streams_metric.set(state_counts["connected"])
     for state, count in state_counts.items():
+        streams_by_state_metric.labels(state=state).set(count)
+    for state, count in legacy_state_counts.items():
         streams_by_state_metric.labels(state=state).set(count)
 
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

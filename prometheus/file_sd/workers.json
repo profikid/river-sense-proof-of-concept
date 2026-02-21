@@ -19,11 +19,83 @@
   },
   {
     "targets": [
+      "vector-worker-288f7af6cbf3:9100"
+    ],
+    "labels": {
+      "stream_id": "288f7af6-cbf3-4539-beef-66e8fef731a2",
+      "stream_name": "werwerewrwer"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-7c20c864efc4:9100"
+    ],
+    "labels": {
+      "stream_id": "7c20c864-efc4-4899-b0bd-9442df820147",
+      "stream_name": "werwerwerwer"
+    }
+  },
+  {
+    "targets": [
       "vector-worker-1e48d34021dd:9100"
     ],
     "labels": {
       "stream_id": "1e48d340-21dd-466e-b805-49d2b23b21bb",
       "stream_name": "aaaaaaaaa"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-d3db111e67b3:9100"
+    ],
+    "labels": {
+      "stream_id": "d3db111e-67b3-46ee-93d7-fd285eddd75d",
+      "stream_name": "smoketest"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-9b46d796400c:9100"
+    ],
+    "labels": {
+      "stream_id": "9b46d796-400c-4929-997a-aea147d24cdb",
+      "stream_name": "fsdfwefewf"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-cfdbfe2f9665:9100"
+    ],
+    "labels": {
+      "stream_id": "cfdbfe2f-9665-42ef-9fb5-fb248adbc674",
+      "stream_name": "werwerwer"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-8e5dc0486983:9100"
+    ],
+    "labels": {
+      "stream_id": "8e5dc048-6983-4533-a1d2-08d504f9a981",
+      "stream_name": "wwwwwwwww"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-b45ff5e40c05:9100"
+    ],
+    "labels": {
+      "stream_id": "b45ff5e4-0c05-42d9-9c4f-59a1d3f5e9d0",
+      "stream_name": "wqwqw"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-df25ef1e0ecb:9100"
+    ],
+    "labels": {
+      "stream_id": "df25ef1e-0ecb-48db-a6ca-5b9987c53f1d",
+      "stream_name": "sdfsdfsd"
     }
   }
 ]

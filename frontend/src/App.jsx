@@ -131,6 +131,7 @@ const LIVE_LAYOUT_OPTIONS = [
   { value: "grid", label: "Grid" },
   { value: "list", label: "List" },
   { value: "map", label: "Map" },
+  { value: "frameless", label: "Frameless" },
 ];
 const DEFAULT_LIVE_NAME_FILTER = "";
 const DEFAULT_LIVE_STATUS_FILTER = "all";
@@ -938,11 +939,13 @@ export default function App() {
   const [streamComboboxSearch, setStreamComboboxSearch] = useState("");
   const [deactivationConfirmStream, setDeactivationConfirmStream] = useState(null);
   const [deleteConfirmStream, setDeleteConfirmStream] = useState(null);
+  const [isLivePanelFullscreen, setIsLivePanelFullscreen] = useState(false);
 
   const streamComboboxRef = useRef(null);
   const streamComboboxSearchRef = useRef(null);
   const deactivationConfirmResolverRef = useRef(null);
   const deleteConfirmResolverRef = useRef(null);
+  const liveRoutePanelRef = useRef(null);
   const cameraAngleVisualRef = useRef(null);
   const cameraAngleVisualDraggingRef = useRef(false);
   const canvasRef = useRef(null);
@@ -2197,6 +2200,9 @@ export default function App() {
     [liveMapColorMetric]
   );
   const isLiveMapLayout = liveLayout === "map";
+  const isLiveFramelessLayout = liveLayout === "frameless";
+  const fullscreenSupported =
+    typeof document !== "undefined" && document.fullscreenEnabled !== false;
   const showLiveMapMarkers = liveMapLayers.includes("camera_markers");
   const showLiveMapCones = liveMapLayers.includes("camera_cones");
   const showLiveMapHeatmap = liveMapLayers.includes("heatmap");
@@ -2219,6 +2225,30 @@ export default function App() {
       setLiveMapLayersOpen(false);
     }
   }, [isLiveMapLayout]);
+
+  useEffect(() => {
+    const syncFullscreenState = () => {
+      const panel = liveRoutePanelRef.current;
+      setIsLivePanelFullscreen(!!panel && document.fullscreenElement === panel);
+    };
+    document.addEventListener("fullscreenchange", syncFullscreenState);
+    syncFullscreenState();
+    return () => {
+      document.removeEventListener("fullscreenchange", syncFullscreenState);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (
+      !isLiveFramelessLayout &&
+      liveRoutePanelRef.current &&
+      document.fullscreenElement === liveRoutePanelRef.current
+    ) {
+      document.exitFullscreen?.().catch(() => {
+        // Ignore browser fullscreen exit failures.
+      });
+    }
+  }, [isLiveFramelessLayout]);
 
   const liveMapFocusStream = useMemo(() => {
     if (selectedStreamId) {
@@ -2531,6 +2561,72 @@ export default function App() {
         </article>
       </section>
     );
+  };
+
+  const renderLiveFramelessTile = (stream) => {
+    const livePayload = liveFramesByStream[stream.id];
+    const hasFrame = !!livePayload?.frame_b64;
+    const directionCoherencePercent = Number.isFinite(Number(livePayload?.direction_coherence))
+      ? Number(livePayload.direction_coherence) * 100
+      : 0;
+
+    return (
+      <article
+        key={stream.id}
+        className={`live-frameless-tile ${selectedStreamId === stream.id ? "selected" : ""}`}
+        role="button"
+        tabIndex={0}
+        aria-label={`Select ${stream.name} stream`}
+        onClick={() => setSelectedStreamId(stream.id)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setSelectedStreamId(stream.id);
+          }
+        }}
+      >
+        <div className="live-frameless-frame">
+          {hasFrame ? (
+            <img
+              className="live-frame"
+              src={`data:image/jpeg;base64,${livePayload.frame_b64}`}
+              alt={`${stream.name} live preview`}
+              loading="lazy"
+            />
+          ) : (
+            <div className="live-placeholder">
+              <span>No frame</span>
+              <small>{stream.is_active ? "Starting/reconnecting" : "Deactivated"}</small>
+            </div>
+          )}
+          <span className="live-frameless-name">{stream.name}</span>
+          <div className="live-frameless-metrics">
+            <span>F{toFixedValue(livePayload?.fps, 1, "0.0")}</span>
+            <span>V{livePayload?.vector_count ?? 0}</span>
+            <span>A{toFixedValue(livePayload?.avg_magnitude, 2, "0.00")}</span>
+            <span>D{toFixedValue(livePayload?.direction_degrees, 0, "0")}°</span>
+            <span>C{toFixedValue(directionCoherencePercent, 0, "0")}%</span>
+          </div>
+        </div>
+      </article>
+    );
+  };
+
+  const handleToggleLiveFullscreen = async () => {
+    const panel = liveRoutePanelRef.current;
+    if (!panel || !fullscreenSupported) {
+      return;
+    }
+
+    try {
+      if (document.fullscreenElement === panel) {
+        await document.exitFullscreen();
+      } else {
+        await panel.requestFullscreen();
+      }
+    } catch (err) {
+      setError(err.message || "Unable to toggle fullscreen mode.");
+    }
   };
 
   return (
@@ -3121,7 +3217,7 @@ export default function App() {
         </main>
       ) : currentView === "live" ? (
         <main className="app-grid dashboard-only">
-          <section className="panel live-route-panel">
+          <section className="panel live-route-panel" ref={liveRoutePanelRef}>
             <div className="live-toolbar">
               <div className="live-toolbar-actions">
                 <div className="live-controls">
@@ -3221,6 +3317,19 @@ export default function App() {
                           <option value="desc">DESC</option>
                         </select>
                       </label>
+                      {isLiveFramelessLayout && (
+                        <div className="live-control live-control-fullscreen">
+                          <span>View</span>
+                          <button
+                            type="button"
+                            className="btn tiny ghost live-fullscreen-btn"
+                            onClick={handleToggleLiveFullscreen}
+                            disabled={!fullscreenSupported}
+                          >
+                            {isLivePanelFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+                          </button>
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
@@ -3265,7 +3374,7 @@ export default function App() {
 	            </div>
 
             {error && <p className="error">{error}</p>}
-            {renderSelectedLiveSection()}
+            {!isLiveFramelessLayout && renderSelectedLiveSection()}
             {streams.length === 0 ? (
               <p className="muted">No streams configured yet.</p>
             ) : liveFilteredStreams.length === 0 ? (
@@ -3491,6 +3600,10 @@ export default function App() {
                         {livePrimaryStreams.map((stream) => (
                           <div key={stream.id}>{renderLiveListRow(stream)}</div>
                         ))}
+                      </div>
+                    ) : liveLayout === "frameless" ? (
+                      <div className="live-frameless-grid">
+                        {liveFilteredSortedStreams.map((stream) => renderLiveFramelessTile(stream))}
                       </div>
                     ) : (
                       <div className="live-grid">

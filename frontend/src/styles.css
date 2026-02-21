@@ -1331,6 +1331,19 @@ input:focus {
     linear-gradient(currentColor 0 0) 64% 0 / 1px 100% no-repeat;
 }
 
+.live-layout-icon.frameless {
+  background:
+    linear-gradient(currentColor 0 0) 0 0 / 2px 2px no-repeat,
+    linear-gradient(currentColor 0 0) 50% 0 / 2px 2px no-repeat,
+    linear-gradient(currentColor 0 0) 100% 0 / 2px 2px no-repeat,
+    linear-gradient(currentColor 0 0) 0 50% / 2px 2px no-repeat,
+    linear-gradient(currentColor 0 0) 50% 50% / 2px 2px no-repeat,
+    linear-gradient(currentColor 0 0) 100% 50% / 2px 2px no-repeat,
+    linear-gradient(currentColor 0 0) 0 100% / 2px 2px no-repeat,
+    linear-gradient(currentColor 0 0) 50% 100% / 2px 2px no-repeat,
+    linear-gradient(currentColor 0 0) 100% 100% / 2px 2px no-repeat;
+}
+
 .live-layout-icon.clear::before,
 .live-layout-icon.clear::after {
   content: "";
@@ -1369,6 +1382,16 @@ input:focus {
 
 .live-control-layer-select {
   min-width: 210px;
+}
+
+.live-control-fullscreen {
+  min-width: 142px;
+}
+
+.live-fullscreen-btn {
+  width: 100%;
+  justify-content: center;
+  white-space: nowrap;
 }
 
 .live-control select {
@@ -1548,6 +1571,79 @@ input:focus {
   margin-top: 0.7rem;
   display: grid;
   gap: 0.6rem;
+}
+
+.live-frameless-grid {
+  margin-top: 0.7rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.45rem;
+}
+
+.live-frameless-tile {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  display: block;
+}
+
+.live-frameless-tile:focus-visible {
+  outline: none;
+}
+
+.live-frameless-frame {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+  background: #020810;
+}
+
+.live-frameless-tile.selected .live-frameless-frame {
+  box-shadow: 0 0 0 2px rgba(22, 242, 179, 0.65);
+}
+
+.live-frameless-name {
+  position: absolute;
+  top: 0.22rem;
+  left: 0.24rem;
+  max-width: 68%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #dcfffa;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.1rem 0.28rem;
+  border-radius: 999px;
+  background: rgba(3, 14, 19, 0.7);
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.55);
+}
+
+.live-frameless-metrics {
+  position: absolute;
+  top: 0.22rem;
+  right: 0.24rem;
+  display: flex;
+  gap: 0.15rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 66%;
+}
+
+.live-frameless-metrics span {
+  color: #cff9f2;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.56rem;
+  line-height: 1;
+  padding: 0.08rem 0.18rem;
+  border-radius: 4px;
+  background: rgba(3, 14, 19, 0.62);
+  letter-spacing: 0.01em;
 }
 
 .live-list-row {
@@ -1891,6 +1987,11 @@ input:focus {
   .live-list-preview .live-frame-shell {
     min-height: unset;
     aspect-ratio: 16 / 9;
+  }
+
+  .live-frameless-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.35rem;
   }
 
   .live-map-focus {

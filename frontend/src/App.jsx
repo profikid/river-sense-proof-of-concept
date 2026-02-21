@@ -299,16 +299,27 @@ function StreamMapClickCapture({ onPick }) {
   return null;
 }
 
-function StreamMapCenter({ latitude, longitude }) {
+function StreamMapCenter({ latitude, longitude, focusKey }) {
   const map = useMap();
 
   useEffect(() => {
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-      map.setView(MAP_DEFAULT_CENTER, MAP_DEFAULT_ZOOM);
-      return;
-    }
-    map.setView([latitude, longitude], Math.max(map.getZoom(), MAP_SELECTED_ZOOM));
-  }, [map, latitude, longitude]);
+    const hasCoordinates = Number.isFinite(latitude) && Number.isFinite(longitude);
+    const targetCenter = hasCoordinates ? [latitude, longitude] : MAP_DEFAULT_CENTER;
+    const targetZoom = hasCoordinates ? MAP_SELECTED_ZOOM : MAP_DEFAULT_ZOOM;
+
+    const applyCenter = () => {
+      map.invalidateSize({ pan: false, debounceMoveend: true });
+      map.setView(targetCenter, targetZoom, { animate: false });
+    };
+
+    const frameId = window.requestAnimationFrame(applyCenter);
+    const timeoutId = window.setTimeout(applyCenter, 140);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.clearTimeout(timeoutId);
+    };
+  }, [map, latitude, longitude, focusKey]);
 
   return null;
 }
@@ -324,7 +335,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [wsStatus, setWsStatus] = useState("disconnected");
+  const [, setWsStatus] = useState("disconnected");
   const [framePayload, setFramePayload] = useState(null);
   const [liveFramesByStream, setLiveFramesByStream] = useState({});
   const [workerLogs, setWorkerLogs] = useState([]);
@@ -367,11 +378,6 @@ export default function App() {
     ? [formLatitude, formLongitude]
     : MAP_DEFAULT_CENTER;
   const mapZoom = hasFormCoordinates ? MAP_SELECTED_ZOOM : MAP_DEFAULT_ZOOM;
-
-  const liveFrameCount = useMemo(
-    () => Object.keys(liveFramesByStream).length,
-    [liveFramesByStream]
-  );
 
   const grafanaUrl = useMemo(() => {
     const base = `${GRAFANA_DASHBOARD_URL}?orgId=1&from=now-${dashboardRange}&to=now&refresh=5s&kiosk`;
@@ -1189,11 +1195,21 @@ export default function App() {
             </button>
           </div>
         </div>
-        <div className="header-meta">
-          <span className={`pill ${wsStatus}`}>WebSocket: {wsStatus}</span>
-          <span className="pill">API: {API_BASE}</span>
-          {currentView === "live" && <span className="pill">Live Frames: {liveFrameCount}</span>}
-          <span className="pill">Selected: {selectedStream?.name || "All streams"}</span>
+        <div className="header-controls">
+          <label className="header-stream-select">
+            Selected Stream
+            <select
+              value={selectedStreamId || ""}
+              onChange={(event) => setSelectedStreamId(event.target.value || null)}
+            >
+              <option value="">All Streams</option>
+              {streams.map((stream) => (
+                <option key={stream.id} value={stream.id}>
+                  {stream.name}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </header>
 
@@ -1331,7 +1347,7 @@ export default function App() {
                     <TileLayer
                       attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
                       subdomains="abcd"
-                      url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                      url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
                     />
                     <StreamMapClickCapture
                       onPick={(latitude, longitude) => {
@@ -1343,7 +1359,11 @@ export default function App() {
                         setLocationSearchError("");
                       }}
                     />
-                    <StreamMapCenter latitude={formLatitude} longitude={formLongitude} />
+                    <StreamMapCenter
+                      latitude={formLatitude}
+                      longitude={formLongitude}
+                      focusKey={selectedStreamId || "new-stream"}
+                    />
                     {hasFormCoordinates && (
                       <CircleMarker
                         center={[formLatitude, formLongitude]}
@@ -1677,20 +1697,6 @@ export default function App() {
             <div className="dashboard-toolbar">
               <h2>Vector Flow Overview</h2>
               <div className="dashboard-filters">
-                <label className="dashboard-filter">
-                  Stream
-                  <select
-                    value={selectedStreamId || ""}
-                    onChange={(event) => setSelectedStreamId(event.target.value || null)}
-                  >
-                    <option value="">All Streams</option>
-                    {streams.map((stream) => (
-                      <option key={stream.id} value={stream.id}>
-                        {stream.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
                 <label className="dashboard-filter">
                   Time
                   <select

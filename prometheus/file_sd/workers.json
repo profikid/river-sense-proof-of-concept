@@ -106,5 +106,14 @@
       "stream_id": "d9a01b23-6e8d-407e-a64d-435da318fad3",
       "stream_name": "qqqqqqq"
     }
+  },
+  {
+    "targets": [
+      "vector-worker-df25ef1e0ecb:9100"
+    ],
+    "labels": {
+      "stream_id": "df25ef1e-0ecb-48db-a6ca-5b9987c53f1d",
+      "stream_name": "sdfsdfsd"
+    }
   }
 ]

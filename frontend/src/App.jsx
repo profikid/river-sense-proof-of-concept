@@ -519,6 +519,21 @@ function statusLabel(stream) {
   return status;
 }
 
+function statusDotColorClass(stream) {
+  const status = stream.connection_status || "unknown";
+  if (status === "connected") return "green";
+  if (status === "starting" || status === "unknown") return "yellow";
+  return "red";
+}
+
+function statusDotTooltip(stream) {
+  const label = statusLabel(stream);
+  if (stream.last_error) {
+    return `${label}: ${stream.last_error}`;
+  }
+  return label;
+}
+
 function toFixedValue(value, digits, fallback = "0.0") {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
@@ -748,7 +763,11 @@ export default function App() {
   const [locatingCurrent, setLocatingCurrent] = useState(false);
   const [locationSearchError, setLocationSearchError] = useState("");
   const [locationSearchResults, setLocationSearchResults] = useState([]);
+  const [streamComboboxOpen, setStreamComboboxOpen] = useState(false);
+  const [streamComboboxSearch, setStreamComboboxSearch] = useState("");
 
+  const streamComboboxRef = useRef(null);
+  const streamComboboxSearchRef = useRef(null);
   const canvasRef = useRef(null);
   const imageRef = useRef(new Image());
 
@@ -756,6 +775,23 @@ export default function App() {
     () => streams.find((stream) => stream.id === selectedStreamId) || null,
     [selectedStreamId, streams]
   );
+  const streamComboboxFilteredStreams = useMemo(() => {
+    const query = streamComboboxSearch.trim().toLowerCase();
+    if (!query) {
+      return streams;
+    }
+    return streams.filter((stream) => {
+      const haystack = [
+        String(stream.name || ""),
+        statusLabel(stream),
+        String(stream.worker_status || ""),
+        normalizeLocationName(stream.location_name),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [streams, streamComboboxSearch]);
   const selectedBasemap = useMemo(
     () =>
       MAP_BASEMAP_OPTIONS.find((option) => option.value === mapBasemap) || MAP_BASEMAP_OPTIONS[0],
@@ -977,6 +1013,42 @@ export default function App() {
       return changed ? next : current;
     });
   }, [streams]);
+
+  useEffect(() => {
+    if (!streamComboboxOpen) {
+      return;
+    }
+
+    const handleDocumentMouseDown = (event) => {
+      if (streamComboboxRef.current && !streamComboboxRef.current.contains(event.target)) {
+        setStreamComboboxOpen(false);
+        setStreamComboboxSearch("");
+      }
+    };
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setStreamComboboxOpen(false);
+        setStreamComboboxSearch("");
+      }
+    };
+
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentMouseDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [streamComboboxOpen]);
+
+  useEffect(() => {
+    if (!streamComboboxOpen) {
+      return;
+    }
+    const frameId = window.requestAnimationFrame(() => {
+      streamComboboxSearchRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [streamComboboxOpen]);
 
   useEffect(() => {
     if (currentView !== "config") {
@@ -2017,20 +2089,113 @@ export default function App() {
           </div>
         </div>
         <div className="header-controls">
-          <label className="header-stream-select">
-            Selected Stream
-            <select
-              value={selectedStreamId || ""}
-              onChange={(event) => setSelectedStreamId(event.target.value || null)}
-            >
-              <option value="">All Streams</option>
-              {streams.map((stream) => (
-                <option key={stream.id} value={stream.id}>
-                  {stream.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="header-stream-select" ref={streamComboboxRef}>
+            <span>Selected Stream</span>
+            <div className={`header-stream-combobox ${streamComboboxOpen ? "open" : ""}`}>
+              <button
+                type="button"
+                className="header-stream-combobox-trigger"
+                onClick={() => {
+                  setStreamComboboxOpen((current) => {
+                    const next = !current;
+                    if (!next) {
+                      setStreamComboboxSearch("");
+                    }
+                    return next;
+                  });
+                }}
+                aria-haspopup="listbox"
+                aria-expanded={streamComboboxOpen}
+              >
+                <span className="header-stream-combobox-trigger-main">
+                  <span
+                    className={`stream-status-dot ${selectedStream ? statusDotColorClass(selectedStream) : "green"}`}
+                    title={selectedStream ? statusDotTooltip(selectedStream) : "All streams selected"}
+                    aria-hidden="true"
+                  />
+                  <span className="header-stream-combobox-trigger-label">
+                    {selectedStream ? selectedStream.name : "All Streams"}
+                  </span>
+                </span>
+                <span className="header-stream-combobox-caret">
+                  {streamComboboxOpen ? "▴" : "▾"}
+                </span>
+              </button>
+              {streamComboboxOpen && (
+                <div className="header-stream-combobox-menu">
+                  <input
+                    ref={streamComboboxSearchRef}
+                    type="search"
+                    value={streamComboboxSearch}
+                    onChange={(event) => setStreamComboboxSearch(event.target.value)}
+                    placeholder="Search streams"
+                    aria-label="Search streams"
+                  />
+                  <div className="header-stream-combobox-options" role="listbox" aria-label="Streams">
+                    <button
+                      type="button"
+                      className={`header-stream-option ${!selectedStreamId ? "selected" : ""}`}
+                      onClick={() => {
+                        setSelectedStreamId(null);
+                        setStreamComboboxOpen(false);
+                        setStreamComboboxSearch("");
+                      }}
+                    >
+                      <span className="header-stream-option-main">
+                        <span
+                          className="stream-status-dot green"
+                          title="All streams selected"
+                          aria-hidden="true"
+                        />
+                        <span className="header-stream-option-name">All Streams</span>
+                      </span>
+                      <span className="header-stream-option-meta">No stream filter</span>
+                    </button>
+                    {streamComboboxFilteredStreams.length === 0 ? (
+                      <p className="muted header-stream-empty">No streams match this search.</p>
+                    ) : (
+                      streamComboboxFilteredStreams.map((stream) => (
+                        <button
+                          key={stream.id}
+                          type="button"
+                          className={`header-stream-option ${selectedStreamId === stream.id ? "selected" : ""}`}
+                          onClick={() => {
+                            setSelectedStreamId(stream.id);
+                            setStreamComboboxOpen(false);
+                            setStreamComboboxSearch("");
+                          }}
+                        >
+                          <span className="header-stream-option-main">
+                            <span
+                              className={`stream-status-dot ${statusDotColorClass(stream)}`}
+                              title={statusDotTooltip(stream)}
+                              aria-hidden="true"
+                            />
+                            <span className="header-stream-option-name">{stream.name}</span>
+                          </span>
+                          <span className="header-stream-option-meta">
+                            {statusLabel(stream)} · Worker {stream.worker_status || "unknown"}
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            {selectedStream && (
+              <div className="header-selected-stream-actions">
+                <button
+                  type="button"
+                  className="btn tiny"
+                  disabled={busy}
+                  onClick={() => handleToggle(selectedStream)}
+                >
+                  {selectedStream.is_active ? "Deactivate Selected Stream" : "Activate Selected Stream"}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 

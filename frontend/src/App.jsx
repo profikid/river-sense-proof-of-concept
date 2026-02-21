@@ -2411,10 +2411,6 @@ export default function App() {
 	                    </button>
 	                  )}
 	                  <div className="live-layout-group">
-	                    <span className="live-layout-group-label">
-	                      <span className="live-layout-group-label-icon" aria-hidden="true" />
-	                      Layout + Selection
-	                    </span>
 	                    <div className="live-layout-toggle" role="group" aria-label="Live overview layout">
 	                      {LIVE_LAYOUT_OPTIONS.map((option) => (
 	                        <button

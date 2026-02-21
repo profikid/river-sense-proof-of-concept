@@ -105,6 +105,8 @@ const LIVE_LAYOUT_OPTIONS = [
 const MAP_DEFAULT_CENTER = [37.0902, -95.7129];
 const MAP_DEFAULT_ZOOM = 4;
 const MAP_SELECTED_ZOOM = 13;
+const LOCATION_SEARCH_MIN_LENGTH = 3;
+const LOCATION_SEARCH_LIMIT = 6;
 
 function normalizeDashboardRange(value) {
   const candidate = String(value || "").trim();
@@ -340,6 +342,10 @@ export default function App() {
   const [liveSortField, setLiveSortField] = useState("name");
   const [liveSortOrder, setLiveSortOrder] = useState("asc");
   const [liveLayout, setLiveLayout] = useState("grid");
+  const [locationQuery, setLocationQuery] = useState("");
+  const [locationSearching, setLocationSearching] = useState(false);
+  const [locationSearchError, setLocationSearchError] = useState("");
+  const [locationSearchResults, setLocationSearchResults] = useState([]);
 
   const canvasRef = useRef(null);
   const imageRef = useRef(new Image());
@@ -531,6 +537,11 @@ export default function App() {
     setEditingId(stream.id);
     setForm(streamToForm(stream));
   }, [currentView, selectedStreamId, streams, editingId]);
+
+  useEffect(() => {
+    setLocationSearchResults([]);
+    setLocationSearchError("");
+  }, [selectedStreamId]);
 
   useEffect(() => {
     const needsConfigSocket = currentView === "config";
@@ -746,6 +757,75 @@ export default function App() {
     setSelectedStreamId(null);
     setEditingId(null);
     setForm(DEFAULT_FORM);
+    setLocationQuery("");
+    setLocationSearchResults([]);
+    setLocationSearchError("");
+  };
+
+  const handleLocationSearch = async () => {
+    const query = locationQuery.trim();
+    if (query.length < LOCATION_SEARCH_MIN_LENGTH) {
+      setLocationSearchResults([]);
+      setLocationSearchError(`Enter at least ${LOCATION_SEARCH_MIN_LENGTH} characters.`);
+      return;
+    }
+
+    setLocationSearching(true);
+    setLocationSearchError("");
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=${LOCATION_SEARCH_LIMIT}&addressdetails=1&q=${encodeURIComponent(query)}`,
+        {
+          headers: {
+            Accept: "application/json",
+          },
+        }
+      );
+      if (!response.ok) {
+        throw new Error(`Lookup failed (${response.status})`);
+      }
+
+      const payload = await response.json();
+      const results = Array.isArray(payload)
+        ? payload
+            .map((entry) => ({
+              display_name: String(entry.display_name || "").trim(),
+              lat: Number(entry.lat),
+              lon: Number(entry.lon),
+            }))
+            .filter(
+              (entry) =>
+                entry.display_name &&
+                Number.isFinite(entry.lat) &&
+                entry.lat >= -90 &&
+                entry.lat <= 90 &&
+                Number.isFinite(entry.lon) &&
+                entry.lon >= -180 &&
+                entry.lon <= 180
+            )
+        : [];
+
+      setLocationSearchResults(results);
+      if (results.length === 0) {
+        setLocationSearchError("No matching locations found.");
+      }
+    } catch (err) {
+      setLocationSearchResults([]);
+      setLocationSearchError(err.message || "Location lookup failed.");
+    } finally {
+      setLocationSearching(false);
+    }
+  };
+
+  const handleApplyLocationResult = (result) => {
+    setForm((current) => ({
+      ...current,
+      latitude: Number(result.lat).toFixed(6),
+      longitude: Number(result.lon).toFixed(6),
+    }));
+    setLocationQuery(result.display_name);
+    setLocationSearchResults([]);
+    setLocationSearchError("");
   };
 
   const handleSliderChange = (key, value) => {
@@ -1144,6 +1224,55 @@ export default function App() {
 
               <div className="config-section">
                 <h3>Location</h3>
+                <div className="location-search-shell">
+                  <label>
+                    Search Address / Place
+                    <div className="location-search-row">
+                      <input
+                        type="search"
+                        value={locationQuery}
+                        placeholder="Search city, address, landmark..."
+                        onChange={(event) => {
+                          setLocationQuery(event.target.value);
+                          setLocationSearchError("");
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            handleLocationSearch();
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="btn tiny"
+                        onClick={handleLocationSearch}
+                        disabled={locationSearching}
+                      >
+                        {locationSearching ? "Searching..." : "Search"}
+                      </button>
+                    </div>
+                  </label>
+                  {locationSearchError && <p className="error">{locationSearchError}</p>}
+                  {locationSearchResults.length > 0 && (
+                    <div className="location-search-results">
+                      {locationSearchResults.map((result, index) => (
+                        <button
+                          key={`${result.lat}-${result.lon}-${index}`}
+                          type="button"
+                          className="location-search-result"
+                          onClick={() => handleApplyLocationResult(result)}
+                        >
+                          <span>{result.display_name}</span>
+                          <small>
+                            {toFixedValue(result.lat, 5, "0.00000")},{" "}
+                            {toFixedValue(result.lon, 5, "0.00000")}
+                          </small>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div className="row two-col">
                   <label>
                     Latitude
@@ -1178,13 +1307,15 @@ export default function App() {
                   <button
                     type="button"
                     className="btn tiny ghost"
-                    onClick={() =>
+                    onClick={() => {
                       setForm((current) => ({
                         ...current,
                         latitude: "",
                         longitude: "",
-                      }))
-                    }
+                      }));
+                      setLocationSearchError("");
+                      setLocationSearchResults([]);
+                    }}
                   >
                     Clear Coordinates
                   </button>
@@ -1198,17 +1329,19 @@ export default function App() {
                     className="stream-map-canvas"
                   >
                     <TileLayer
-                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+                      subdomains="abcd"
+                      url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
                     />
                     <StreamMapClickCapture
-                      onPick={(latitude, longitude) =>
+                      onPick={(latitude, longitude) => {
                         setForm((current) => ({
                           ...current,
                           latitude: latitude.toFixed(6),
                           longitude: longitude.toFixed(6),
-                        }))
-                      }
+                        }));
+                        setLocationSearchError("");
+                      }}
                     />
                     <StreamMapCenter latitude={formLatitude} longitude={formLongitude} />
                     {hasFormCoordinates && (

@@ -238,6 +238,53 @@ input:focus {
   justify-content: space-between;
 }
 
+.location-search-shell {
+  margin-bottom: 0.55rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.location-search-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.location-search-row input {
+  min-width: 0;
+}
+
+.location-search-results {
+  border: 1px solid rgba(129, 202, 208, 0.26);
+  border-radius: 10px;
+  overflow: hidden;
+  display: grid;
+  gap: 1px;
+  background: rgba(129, 202, 208, 0.16);
+}
+
+.location-search-result {
+  width: 100%;
+  border: 0;
+  background: rgba(9, 21, 29, 0.94);
+  color: var(--text);
+  text-align: left;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.45rem 0.55rem;
+  cursor: pointer;
+}
+
+.location-search-result:hover {
+  background: rgba(13, 36, 48, 0.95);
+}
+
+.location-search-result small {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
 .stream-map-picker {
   margin-top: 0.55rem;
   border: 1px solid rgba(129, 202, 208, 0.28);
@@ -952,6 +999,10 @@ input:focus {
 @media (max-width: 640px) {
   .app-shell {
     padding: 0.7rem;
+  }
+
+  .location-search-row {
+    grid-template-columns: 1fr;
   }
 
   .row.two-col {

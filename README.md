@@ -130,7 +130,7 @@ When activated, the API spins up a dedicated worker container and updates Promet
 1. Create stream with URL.
 2. Select stream in the fleet list and view live preview.
 3. Click **Tune Selected Stream**.
-4. Set stream location by zooming/clicking the map (or entering `latitude`/`longitude` manually).
+4. Set stream location by searching address/place, then selecting a result (or zoom/click map / enter `latitude`+`longitude` manually).
 5. Adjust controls (`show_feed`, `show_arrows`, `show_magnitude`, `show_trails`, `grid_size`, `win_radius`, `threshold`, `arrow_scale`, `arrow_opacity`, `gradient_intensity`).
 6. Save config.
 

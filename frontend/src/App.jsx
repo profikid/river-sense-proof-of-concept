@@ -42,7 +42,7 @@ const DEFAULT_FORM = {
   longitude: "",
   orientation_deg: 0,
   view_angle_deg: 60,
-  view_distance_m: 120,
+  view_distance_m: 150,
   ...DEFAULT_STREAM_CONFIG,
   is_active: false,
 };
@@ -176,8 +176,9 @@ const CAMERA_ORIENTATION_MIN = 0;
 const CAMERA_ORIENTATION_MAX = 359.9;
 const CAMERA_VIEW_ANGLE_MIN = 5;
 const CAMERA_VIEW_ANGLE_MAX = 170;
-const CAMERA_VIEW_DISTANCE_MIN = 10;
-const CAMERA_VIEW_DISTANCE_MAX = 5000;
+const CAMERA_VIEW_DISTANCE_MIN = 50;
+const CAMERA_VIEW_DISTANCE_MAX = 1000;
+const CAMERA_VIEW_DISTANCE_STEP = 50;
 const LOCATION_NAME_MAX_LENGTH = 512;
 const LOCATION_SEARCH_MIN_LENGTH = 3;
 const LOCATION_SEARCH_LIMIT = 6;
@@ -263,9 +264,12 @@ function streamToForm(stream) {
     view_angle_deg: Number.isFinite(Number(stream.view_angle_deg))
       ? Number(stream.view_angle_deg)
       : DEFAULT_FORM.view_angle_deg,
-    view_distance_m: Number.isFinite(Number(stream.view_distance_m))
-      ? Number(stream.view_distance_m)
-      : DEFAULT_FORM.view_distance_m,
+    view_distance_m: normalizeViewDistance(
+      Number.isFinite(Number(stream.view_distance_m))
+        ? Number(stream.view_distance_m)
+        : DEFAULT_FORM.view_distance_m,
+      DEFAULT_FORM.view_distance_m
+    ),
     is_active: !!stream.is_active,
     grid_size: stream.grid_size ?? DEFAULT_STREAM_CONFIG.grid_size,
     win_radius: stream.win_radius ?? DEFAULT_STREAM_CONFIG.win_radius,
@@ -330,6 +334,14 @@ function parseBoundedNumber(value, min, max, fallback) {
   return clampNumber(numeric, min, max);
 }
 
+function snapToStep(value, step, min = 0) {
+  if (!Number.isFinite(value) || !Number.isFinite(step) || step <= 0) {
+    return value;
+  }
+  const snapped = Math.round((value - min) / step) * step + min;
+  return Number(snapped.toFixed(3));
+}
+
 function normalizeOrientation(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
@@ -337,6 +349,42 @@ function normalizeOrientation(value) {
   }
   const normalized = ((numeric % 360) + 360) % 360;
   return clampNumber(normalized, CAMERA_ORIENTATION_MIN, CAMERA_ORIENTATION_MAX);
+}
+
+function normalizeViewDistance(value, fallback = DEFAULT_FORM.view_distance_m) {
+  const bounded = parseBoundedNumber(
+    value,
+    CAMERA_VIEW_DISTANCE_MIN,
+    CAMERA_VIEW_DISTANCE_MAX,
+    fallback
+  );
+  const stepped = snapToStep(
+    bounded,
+    CAMERA_VIEW_DISTANCE_STEP,
+    CAMERA_VIEW_DISTANCE_MIN
+  );
+  return clampNumber(stepped, CAMERA_VIEW_DISTANCE_MIN, CAMERA_VIEW_DISTANCE_MAX);
+}
+
+function orientationFromClientPoint(element, clientX, clientY) {
+  if (!element) {
+    return DEFAULT_FORM.orientation_deg;
+  }
+  const rect = element.getBoundingClientRect();
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+  const dx = clientX - centerX;
+  const dy = clientY - centerY;
+  const degrees = ((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360;
+  return normalizeOrientation(degrees);
+}
+
+function compassPoint(centerX, centerY, radius, bearingDeg) {
+  const radians = (Number(bearingDeg) * Math.PI) / 180;
+  return {
+    x: centerX + radius * Math.sin(radians),
+    y: centerY - radius * Math.cos(radians),
+  };
 }
 
 function destinationPoint(latitude, longitude, bearingDeg, distanceMeters) {
@@ -465,10 +513,8 @@ function buildPayload(form) {
     CAMERA_VIEW_ANGLE_MAX,
     DEFAULT_FORM.view_angle_deg
   );
-  const viewDistance = parseBoundedNumber(
+  const viewDistance = normalizeViewDistance(
     form.view_distance_m,
-    CAMERA_VIEW_DISTANCE_MIN,
-    CAMERA_VIEW_DISTANCE_MAX,
     DEFAULT_FORM.view_distance_m
   );
   let locationName = normalizeLocationName(form.location_name);
@@ -484,7 +530,7 @@ function buildPayload(form) {
     longitude,
     orientation_deg: Number(orientation.toFixed(1)),
     view_angle_deg: Number(viewAngle.toFixed(1)),
-    view_distance_m: Number(viewDistance.toFixed(1)),
+    view_distance_m: Number(viewDistance.toFixed(0)),
     is_active: !!form.is_active,
     grid_size: Number(form.grid_size),
     win_radius: Number(form.win_radius),
@@ -768,6 +814,8 @@ export default function App() {
 
   const streamComboboxRef = useRef(null);
   const streamComboboxSearchRef = useRef(null);
+  const cameraAngleVisualRef = useRef(null);
+  const cameraAngleVisualDraggingRef = useRef(false);
   const canvasRef = useRef(null);
   const imageRef = useRef(new Image());
 
@@ -830,15 +878,30 @@ export default function App() {
     [form.view_angle_deg]
   );
   const formViewDistanceM = useMemo(
-    () =>
-      parseBoundedNumber(
-        form.view_distance_m,
-        CAMERA_VIEW_DISTANCE_MIN,
-        CAMERA_VIEW_DISTANCE_MAX,
-        DEFAULT_FORM.view_distance_m
-      ),
+    () => normalizeViewDistance(form.view_distance_m, DEFAULT_FORM.view_distance_m),
     [form.view_distance_m]
   );
+  const cameraAnglePreview = useMemo(() => {
+    const size = 168;
+    const center = size / 2;
+    const radius = 66;
+    const halfAngle = clampNumber(formViewAngleDeg / 2, 1, 85);
+    const leftBearing = formOrientationDeg - halfAngle;
+    const rightBearing = formOrientationDeg + halfAngle;
+    const leftPoint = compassPoint(center, center, radius, leftBearing);
+    const rightPoint = compassPoint(center, center, radius, rightBearing);
+    const headingPoint = compassPoint(center, center, radius, formOrientationDeg);
+    const conePath = `M ${center} ${center} L ${leftPoint.x.toFixed(2)} ${leftPoint.y.toFixed(2)} A ${radius} ${radius} 0 0 1 ${rightPoint.x.toFixed(2)} ${rightPoint.y.toFixed(2)} Z`;
+
+    return {
+      size,
+      center,
+      conePath,
+      leftPoint,
+      rightPoint,
+      headingPoint,
+    };
+  }, [formOrientationDeg, formViewAngleDeg]);
   const hasFormCoordinates = formLatitude !== null && formLongitude !== null;
   const mapCenter = hasFormCoordinates
     ? [formLatitude, formLongitude]
@@ -1553,16 +1616,67 @@ export default function App() {
       return;
     }
 
-    let bounded = numeric;
-    if (key === "orientation_deg") {
-      bounded = normalizeOrientation(numeric);
-    } else if (key === "view_angle_deg") {
-      bounded = clampNumber(numeric, CAMERA_VIEW_ANGLE_MIN, CAMERA_VIEW_ANGLE_MAX);
-    } else if (key === "view_distance_m") {
-      bounded = clampNumber(numeric, CAMERA_VIEW_DISTANCE_MIN, CAMERA_VIEW_DISTANCE_MAX);
+    if (key === "view_distance_m") {
+      const steppedDistance = normalizeViewDistance(numeric, formViewDistanceM);
+      setForm((current) => ({ ...current, [key]: Number(steppedDistance.toFixed(0)) }));
+      return;
     }
 
+    let bounded = key === "orientation_deg"
+      ? normalizeOrientation(numeric)
+      : clampNumber(numeric, CAMERA_VIEW_ANGLE_MIN, CAMERA_VIEW_ANGLE_MAX);
     setForm((current) => ({ ...current, [key]: Number(bounded.toFixed(1)) }));
+  };
+
+  const updateOrientationFromPointer = (clientX, clientY) => {
+    const orientation = orientationFromClientPoint(
+      cameraAngleVisualRef.current,
+      clientX,
+      clientY
+    );
+    handleCameraViewChange("orientation_deg", orientation);
+  };
+
+  const handleOrientationDialPointerDown = (event) => {
+    event.preventDefault();
+    cameraAngleVisualDraggingRef.current = true;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    updateOrientationFromPointer(event.clientX, event.clientY);
+  };
+
+  const handleOrientationDialPointerMove = (event) => {
+    if (!cameraAngleVisualDraggingRef.current) {
+      return;
+    }
+    updateOrientationFromPointer(event.clientX, event.clientY);
+  };
+
+  const handleOrientationDialPointerUp = (event) => {
+    cameraAngleVisualDraggingRef.current = false;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const handleOrientationDialKeyDown = (event) => {
+    const fineStep = event.shiftKey ? 10 : 1;
+    let nextOrientation = null;
+
+    if (event.key === "ArrowUp" || event.key === "ArrowRight") {
+      nextOrientation = formOrientationDeg + fineStep;
+    } else if (event.key === "ArrowDown" || event.key === "ArrowLeft") {
+      nextOrientation = formOrientationDeg - fineStep;
+    } else if (event.key === "Home") {
+      nextOrientation = CAMERA_ORIENTATION_MIN;
+    } else if (event.key === "End") {
+      nextOrientation = CAMERA_ORIENTATION_MAX;
+    }
+
+    if (nextOrientation === null) {
+      return;
+    }
+    event.preventDefault();
+    handleCameraViewChange("orientation_deg", nextOrientation);
   };
 
   const handleSliderChange = (key, value) => {
@@ -2332,45 +2446,100 @@ export default function App() {
                     />
                   </label>
                 </div>
-                <div className="row three-col">
-                  <label>
-                    Orientation (deg, 0=N)
-                    <input
-                      type="number"
-                      step="1"
-                      min={CAMERA_ORIENTATION_MIN}
-                      max={CAMERA_ORIENTATION_MAX}
-                      value={form.orientation_deg}
-                      onChange={(event) =>
-                        handleCameraViewChange("orientation_deg", event.target.value)
-                      }
-                    />
-                  </label>
-                  <label>
-                    View Angle (deg)
-                    <input
-                      type="number"
-                      step="1"
-                      min={CAMERA_VIEW_ANGLE_MIN}
-                      max={CAMERA_VIEW_ANGLE_MAX}
-                      value={form.view_angle_deg}
-                      onChange={(event) =>
-                        handleCameraViewChange("view_angle_deg", event.target.value)
-                      }
-                    />
-                  </label>
-                  <label>
-                    View Range (m)
-                    <input
-                      type="number"
-                      step="5"
-                      min={CAMERA_VIEW_DISTANCE_MIN}
-                      max={CAMERA_VIEW_DISTANCE_MAX}
-                      value={form.view_distance_m}
-                      onChange={(event) =>
-                        handleCameraViewChange("view_distance_m", event.target.value)
-                      }
-                    />
+                <div className="row camera-heading-controls">
+                  <label className="camera-angle-control">
+                    <div
+                      ref={cameraAngleVisualRef}
+                      className="camera-angle-visual"
+                      role="group"
+                      tabIndex={0}
+                      aria-label={`Direction ${Math.round(formOrientationDeg)} degrees`}
+                      onPointerDown={handleOrientationDialPointerDown}
+                      onPointerMove={handleOrientationDialPointerMove}
+                      onPointerUp={handleOrientationDialPointerUp}
+                      onPointerCancel={handleOrientationDialPointerUp}
+                      onKeyDown={handleOrientationDialKeyDown}
+                    >
+                      <svg
+                        className="camera-angle-svg"
+                        viewBox={`0 0 ${cameraAnglePreview.size} ${cameraAnglePreview.size}`}
+                        aria-hidden="true"
+                      >
+                        <circle
+                          className="camera-angle-ring"
+                          cx={cameraAnglePreview.center}
+                          cy={cameraAnglePreview.center}
+                          r="66"
+                        />
+                        <path className="camera-angle-cone" d={cameraAnglePreview.conePath} />
+                        <line
+                          className="camera-angle-boundary"
+                          x1={cameraAnglePreview.center}
+                          y1={cameraAnglePreview.center}
+                          x2={cameraAnglePreview.leftPoint.x}
+                          y2={cameraAnglePreview.leftPoint.y}
+                        />
+                        <line
+                          className="camera-angle-boundary"
+                          x1={cameraAnglePreview.center}
+                          y1={cameraAnglePreview.center}
+                          x2={cameraAnglePreview.rightPoint.x}
+                          y2={cameraAnglePreview.rightPoint.y}
+                        />
+                        <line
+                          className="camera-angle-heading"
+                          x1={cameraAnglePreview.center}
+                          y1={cameraAnglePreview.center}
+                          x2={cameraAnglePreview.headingPoint.x}
+                          y2={cameraAnglePreview.headingPoint.y}
+                        />
+                        <text
+                          className="camera-angle-north"
+                          x={cameraAnglePreview.center}
+                          y="18"
+                          textAnchor="middle"
+                        >
+                          N
+                        </text>
+                        <circle
+                          className="camera-angle-origin"
+                          cx={cameraAnglePreview.center}
+                          cy={cameraAnglePreview.center}
+                          r="6"
+                        />
+                      </svg>
+                      <input
+                        type="range"
+                        className="camera-angle-slider-horizontal"
+                        step="1"
+                        min={CAMERA_VIEW_ANGLE_MIN}
+                        max={CAMERA_VIEW_ANGLE_MAX}
+                        value={formViewAngleDeg}
+                        aria-label="View angle"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onChange={(event) =>
+                          handleCameraViewChange("view_angle_deg", event.target.value)
+                        }
+                      />
+                      <input
+                        type="range"
+                        className="camera-range-slider-vertical"
+                        step={CAMERA_VIEW_DISTANCE_STEP}
+                        min={CAMERA_VIEW_DISTANCE_MIN}
+                        max={CAMERA_VIEW_DISTANCE_MAX}
+                        value={formViewDistanceM}
+                        aria-label="View range"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onChange={(event) =>
+                          handleCameraViewChange("view_distance_m", event.target.value)
+                        }
+                      />
+                    </div>
+                    <div className="camera-angle-metrics">
+                      <span>Dir {toFixedValue(formOrientationDeg, 0, "0")}deg</span>
+                      <span>Angle {toFixedValue(formViewAngleDeg, 0, "0")}deg</span>
+                      <span>Range {toFixedValue(formViewDistanceM, 0, "0")}m</span>
+                    </div>
                   </label>
                 </div>
                 <div className="row map-row">

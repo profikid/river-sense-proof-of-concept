@@ -19,6 +19,24 @@
   },
   {
     "targets": [
+      "vector-worker-47dcc8420ccc:9100"
+    ],
+    "labels": {
+      "stream_id": "47dcc842-0ccc-461d-969a-6c0faca0e53f",
+      "stream_name": "sdfsdfsdfaaa"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-4ba301001829:9100"
+    ],
+    "labels": {
+      "stream_id": "4ba30100-1829-4617-8bbf-7ef3c8389f73",
+      "stream_name": "another stream"
+    }
+  },
+  {
+    "targets": [
       "vector-worker-1e48d34021dd:9100"
     ],
     "labels": {
@@ -33,15 +51,6 @@
     "labels": {
       "stream_id": "9c7ad1d7-c6df-4b50-b3a2-2d306ff7f86b",
       "stream_name": "aasdfsdfdf"
-    }
-  },
-  {
-    "targets": [
-      "vector-worker-4ba301001829:9100"
-    ],
-    "labels": {
-      "stream_id": "4ba30100-1829-4617-8bbf-7ef3c8389f73",
-      "stream_name": "another stream"
     }
   },
   {
@@ -96,6 +105,15 @@
     "labels": {
       "stream_id": "b63544a0-2b43-40ca-9114-b546f3849492",
       "stream_name": "johoe3"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-d3db111e67b3:9100"
+    ],
+    "labels": {
+      "stream_id": "d3db111e-67b3-46ee-93d7-fd285eddd75d",
+      "stream_name": "smoketest"
     }
   },
   {

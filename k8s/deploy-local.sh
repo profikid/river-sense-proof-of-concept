@@ -73,6 +73,8 @@ kubectl -n "${NAMESPACE}" create configmap vectorflow-grafana-provisioning \
   --from-file=datasource.yml="${ROOT_DIR}/grafana/provisioning/datasources/datasource.yml" \
   --from-file=dashboard.yml="${ROOT_DIR}/grafana/provisioning/dashboards/dashboard.yml" \
   --from-file=alert_rules.yml="${ROOT_DIR}/grafana/provisioning/alerting/alert_rules.yml" \
+  --from-file=contact_points.yml="${ROOT_DIR}/grafana/provisioning/alerting/contact_points.yml" \
+  --from-file=notification_policies.yml="${ROOT_DIR}/grafana/provisioning/alerting/notification_policies.yml" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl -n "${NAMESPACE}" create configmap vectorflow-grafana-dashboard \

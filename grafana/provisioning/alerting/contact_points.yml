@@ -1,0 +1,13 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: vectorflow-alert-webhook
+    receivers:
+      - uid: vectorflow-alert-webhook
+        type: webhook
+        settings:
+          url: http://api:8000/alerts/webhook
+          httpMethod: POST
+          maxAlerts: 0
+        disableResolveMessage: false

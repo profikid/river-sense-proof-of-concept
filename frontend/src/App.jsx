@@ -140,6 +140,20 @@ const LIVE_LAYOUT_OPTIONS = [
   { value: "map", label: "Map" },
   { value: "frameless", label: "Frameless" },
 ];
+const ALERT_STATUS_FILTER_OPTIONS = [
+  { value: "all", label: "All Statuses" },
+  { value: "firing", label: "Firing/Alerting" },
+  { value: "pending", label: "Pending" },
+  { value: "resolved", label: "Resolved" },
+  { value: "unknown", label: "Unknown" },
+];
+const ALERT_SEVERITY_FILTER_OPTIONS = [
+  { value: "all", label: "All Severities" },
+  { value: "critical", label: "Critical" },
+  { value: "warning", label: "Warning" },
+  { value: "info", label: "Info" },
+  { value: "na", label: "N/A" },
+];
 const DEFAULT_LIVE_NAME_FILTER = "";
 const DEFAULT_LIVE_STATUS_FILTER = "all";
 const DEFAULT_LIVE_LAYOUT = "grid";
@@ -269,6 +283,8 @@ function parseLocationState() {
     view = "dashboard";
   } else if (url.pathname.startsWith("/live")) {
     view = "live";
+  } else if (url.pathname.startsWith("/alerts")) {
+    view = "alerts";
   } else if (url.pathname.startsWith("/settings")) {
     view = "settings";
   }
@@ -333,6 +349,8 @@ function buildLocation(
       ? "/dashboard"
       : view === "live"
         ? "/live"
+        : view === "alerts"
+          ? "/alerts"
         : view === "settings"
           ? "/settings"
           : "/";
@@ -919,6 +937,120 @@ function toFixedValue(value, digits, fallback = "0.0") {
   return numeric.toFixed(digits);
 }
 
+function formatTimestamp(value) {
+  if (!value) {
+    return "N/A";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return String(value);
+  }
+  return parsed.toLocaleString();
+}
+
+function toTimestampMillis(value) {
+  if (!value) {
+    return 0;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeAlertStatus(value) {
+  const status = String(value || "").trim().toLowerCase();
+  return status || null;
+}
+
+function alertStatusTone(status) {
+  if (status === "firing" || status === "alerting") {
+    return "danger";
+  }
+  if (status === "resolved" || status === "ok" || status === "normal") {
+    return "good";
+  }
+  if (status === "pending") {
+    return "pending";
+  }
+  return "na";
+}
+
+function alertStatusLabel(status) {
+  if (status === "firing") return "Firing";
+  if (status === "alerting") return "Alerting";
+  if (status === "resolved") return "Resolved";
+  if (status === "ok") return "OK";
+  if (status === "normal") return "Normal";
+  if (status === "pending") return "Pending";
+  return "N/A";
+}
+
+function normalizeAlertSeverity(value) {
+  const severity = String(value || "").trim().toLowerCase();
+  if (!severity) {
+    return null;
+  }
+  if (["critical", "fatal", "high", "emergency"].includes(severity)) {
+    return "critical";
+  }
+  if (["warning", "warn", "medium"].includes(severity)) {
+    return "warning";
+  }
+  if (["info", "informational", "low"].includes(severity)) {
+    return "info";
+  }
+  return severity;
+}
+
+function alertSeverityTone(severity) {
+  if (severity === "critical") return "critical";
+  if (severity === "warning") return "warning";
+  if (severity === "info") return "info";
+  return "na";
+}
+
+function alertSeverityLabel(severity) {
+  if (!severity || severity === "na") return "N/A";
+  if (severity === "critical") return "Critical";
+  if (severity === "warning") return "Warning";
+  if (severity === "info") return "Info";
+  return String(severity).toUpperCase();
+}
+
+function alertGroupStatusTone(statusBucket) {
+  if (statusBucket === "firing") return "danger";
+  if (statusBucket === "pending") return "pending";
+  if (statusBucket === "resolved") return "good";
+  return "na";
+}
+
+function alertGroupStatusLabel(statusBucket) {
+  if (statusBucket === "firing") return "Firing";
+  if (statusBucket === "pending") return "Pending";
+  if (statusBucket === "resolved") return "Resolved";
+  return "N/A";
+}
+
+function alertGroupStatusBucket(group) {
+  if (group.manualResolvedActive) {
+    return "resolved";
+  }
+  const status = group.latestStatus;
+  if (status === "firing" || status === "alerting") {
+    return "firing";
+  }
+  if (status === "pending") {
+    return "pending";
+  }
+  if (status === "resolved" || status === "ok" || status === "normal") {
+    return "resolved";
+  }
+  return "unknown";
+}
+
+function alertGroupSeverityBucket(group) {
+  return group.latestSeverity || "na";
+}
+
 function getLiveMetricValue(payload, metric) {
   if (!payload || typeof payload !== "object") {
     return null;
@@ -1197,6 +1329,16 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [alertEvents, setAlertEvents] = useState([]);
+  const [alertsLoading, setAlertsLoading] = useState(false);
+  const [alertsError, setAlertsError] = useState("");
+  const [alertSearchQuery, setAlertSearchQuery] = useState("");
+  const [alertStatusFilter, setAlertStatusFilter] = useState("all");
+  const [alertSeverityFilter, setAlertSeverityFilter] = useState("all");
+  const [hideResolvedAlerts, setHideResolvedAlerts] = useState(true);
+  const [alertGroupStates, setAlertGroupStates] = useState({});
+  const [alertGroupMenuOpen, setAlertGroupMenuOpen] = useState(null);
+  const [alertGroupActionBusyKey, setAlertGroupActionBusyKey] = useState("");
   const [, setWsStatus] = useState("disconnected");
   const [framePayload, setFramePayload] = useState(null);
   const [liveFramesByStream, setLiveFramesByStream] = useState({});
@@ -1246,6 +1388,110 @@ export default function App() {
     () => streams.find((stream) => stream.id === selectedStreamId) || null,
     [selectedStreamId, streams]
   );
+  const groupedAlertEvents = useMemo(() => {
+    const grouped = new Map();
+
+    for (const event of alertEvents) {
+      const fingerprint = String(event?.fingerprint || "").trim();
+      const fallbackKey = [
+        String(event?.alert_name || "").trim(),
+        String(event?.stream_name || "").trim(),
+        String(event?.severity || "").trim(),
+      ]
+        .filter(Boolean)
+        .join("|");
+      const groupKey = fingerprint || `na:${fallbackKey || "alert"}`;
+
+      if (!grouped.has(groupKey)) {
+        grouped.set(groupKey, {
+          groupKey,
+          fingerprint: fingerprint || null,
+          events: [],
+        });
+      }
+      grouped.get(groupKey).events.push(event);
+    }
+
+    return Array.from(grouped.values())
+      .map((group) => {
+        const events = [...group.events].sort(
+          (left, right) =>
+            toTimestampMillis(right.received_at) - toTimestampMillis(left.received_at) ||
+            Number(right.id || 0) - Number(left.id || 0)
+        );
+        const latest = events[0] || null;
+        const latestStatus = normalizeAlertStatus(
+          latest?.alert_status || latest?.notification_status
+        );
+        const latestSeverity = normalizeAlertSeverity(latest?.severity);
+        const manualState = alertGroupStates[group.groupKey] || null;
+        const manualResolved = !!manualState?.resolved;
+        const manualResolvedAt = toTimestampMillis(manualState?.resolved_at);
+        const latestReceivedAt = toTimestampMillis(latest?.received_at);
+        const isNewlyActive =
+          latestStatus !== null &&
+          ["firing", "alerting", "pending"].includes(latestStatus) &&
+          latestReceivedAt > manualResolvedAt;
+        const manualResolvedActive = manualResolved && !isNewlyActive;
+
+        return {
+          groupKey: group.groupKey,
+          fingerprint: group.fingerprint,
+          events,
+          count: events.length,
+          latest,
+          latestStatus,
+          latestSeverity,
+          manualResolvedActive,
+        };
+      })
+      .sort(
+        (left, right) =>
+          toTimestampMillis(right.latest?.received_at) -
+            toTimestampMillis(left.latest?.received_at) ||
+          Number(right.latest?.id || 0) - Number(left.latest?.id || 0)
+      );
+  }, [alertEvents, alertGroupStates]);
+  const filteredAlertGroups = useMemo(() => {
+    const query = alertSearchQuery.trim().toLowerCase();
+
+    return groupedAlertEvents.filter((group) => {
+      const statusBucket = alertGroupStatusBucket(group);
+      const severityBucket = alertGroupSeverityBucket(group);
+
+      if (hideResolvedAlerts && statusBucket === "resolved") {
+        return false;
+      }
+      if (alertStatusFilter !== "all" && statusBucket !== alertStatusFilter) {
+        return false;
+      }
+      if (alertSeverityFilter !== "all" && severityBucket !== alertSeverityFilter) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+      const haystack = [
+        group.fingerprint || "",
+        group.latest?.alert_name || "",
+        group.latest?.stream_name || "",
+        group.latest?.summary || "",
+        group.latest?.description || "",
+        group.latestStatus || "",
+        group.latestSeverity || "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [
+    groupedAlertEvents,
+    alertSearchQuery,
+    alertStatusFilter,
+    alertSeverityFilter,
+    hideResolvedAlerts,
+  ]);
   const streamComboboxFilteredStreams = useMemo(() => {
     const query = streamComboboxSearch.trim().toLowerCase();
     if (!query) {
@@ -1477,6 +1723,54 @@ export default function App() {
     });
   };
 
+  const loadAlertEvents = async (limit = 400) => {
+    const data = await apiRequest(`/alerts?limit=${limit}`);
+    setAlertEvents(Array.isArray(data) ? data : []);
+  };
+
+  const loadAlertGroupStates = async () => {
+    const data = await apiRequest("/alerts/group-states");
+    const next = {};
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        const identifier = String(item?.identifier || "").trim();
+        if (!identifier) {
+          continue;
+        }
+        next[identifier] = item;
+      }
+    }
+    setAlertGroupStates(next);
+  };
+
+  const handleSetAlertGroupResolved = async (group, resolved) => {
+    const identifier = String(group?.groupKey || "").trim();
+    if (!identifier) {
+      return;
+    }
+
+    setAlertGroupActionBusyKey(identifier);
+    try {
+      const state = await apiRequest("/alerts/group-states", {
+        method: "POST",
+        body: JSON.stringify({
+          identifier,
+          resolved: !!resolved,
+        }),
+      });
+      setAlertGroupStates((current) => ({
+        ...current,
+        [identifier]: state,
+      }));
+      setAlertsError("");
+    } catch (err) {
+      setAlertsError(err.message || "Unable to update alert group state.");
+    } finally {
+      setAlertGroupActionBusyKey("");
+      setAlertGroupMenuOpen(null);
+    }
+  };
+
   useEffect(() => {
     const syncFromLocation = () => {
       const locationState = parseLocationState();
@@ -1570,6 +1864,92 @@ export default function App() {
       cancelled = true;
     };
   }, [currentView, settingsLoaded]);
+
+  useEffect(() => {
+    if (currentView !== "alerts") {
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchAlerts = async (silent = false) => {
+      if (!silent) {
+        setAlertsLoading(true);
+      }
+      try {
+        const [eventsData, stateData] = await Promise.all([
+          apiRequest("/alerts?limit=500"),
+          apiRequest("/alerts/group-states"),
+        ]);
+        if (!cancelled) {
+          setAlertEvents(Array.isArray(eventsData) ? eventsData : []);
+          const nextStates = {};
+          if (Array.isArray(stateData)) {
+            for (const item of stateData) {
+              const identifier = String(item?.identifier || "").trim();
+              if (!identifier) {
+                continue;
+              }
+              nextStates[identifier] = item;
+            }
+          }
+          setAlertGroupStates(nextStates);
+          setAlertsError("");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setAlertsError(err.message || "Unable to load webhook alerts.");
+        }
+      } finally {
+        if (!silent && !cancelled) {
+          setAlertsLoading(false);
+        }
+      }
+    };
+
+    fetchAlerts(false).catch(() => {
+      // Keep last known state if initial fetch fails.
+    });
+
+    const interval = setInterval(() => {
+      fetchAlerts(true).catch(() => {
+        // Ignore periodic errors and keep last known data.
+      });
+    }, 10000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [currentView]);
+
+  useEffect(() => {
+    if (!alertGroupMenuOpen) {
+      return;
+    }
+
+    const handleDocumentMouseDown = (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      if (!target.closest(".alerts-group-menu-wrap")) {
+        setAlertGroupMenuOpen(null);
+      }
+    };
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setAlertGroupMenuOpen(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentMouseDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [alertGroupMenuOpen]);
 
   useEffect(() => {
     const validStreamIds = new Set(streams.map((stream) => stream.id));
@@ -3014,6 +3394,13 @@ export default function App() {
             </button>
             <button
               type="button"
+              className={`btn tiny ${currentView === "alerts" ? "primary active" : ""}`}
+              onClick={() => switchView("alerts")}
+            >
+              Alerts
+            </button>
+            <button
+              type="button"
               className={`btn tiny ${currentView === "settings" ? "primary active" : ""}`}
               onClick={() => switchView("settings")}
             >
@@ -4052,6 +4439,210 @@ export default function App() {
               className="grafana-frame grafana-route-frame"
               loading="lazy"
             />
+          </section>
+        </main>
+      ) : currentView === "alerts" ? (
+        <main className="app-grid dashboard-only">
+          <section className="panel alerts-route-panel">
+            <div className="alerts-toolbar">
+              <div className="alerts-toolbar-main">
+                <h2>Grafana Webhook Alerts</h2>
+                <p className="muted">
+                  Incoming alert notifications received by the API webhook endpoint.
+                </p>
+              </div>
+              <div className="alerts-filter-row">
+                <label className="alerts-filter-control">
+                  Search
+                  <input
+                    type="search"
+                    value={alertSearchQuery}
+                    placeholder="Alert name, stream, fingerprint..."
+                    onChange={(event) => setAlertSearchQuery(event.target.value)}
+                  />
+                </label>
+                <label className="alerts-filter-control">
+                  Status
+                  <select
+                    value={alertStatusFilter}
+                    onChange={(event) => setAlertStatusFilter(event.target.value)}
+                  >
+                    {ALERT_STATUS_FILTER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="alerts-filter-control">
+                  Severity
+                  <select
+                    value={alertSeverityFilter}
+                    onChange={(event) => setAlertSeverityFilter(event.target.value)}
+                  >
+                    {ALERT_SEVERITY_FILTER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="checkbox-row alerts-filter-toggle">
+                  <input
+                    type="checkbox"
+                    checked={hideResolvedAlerts}
+                    onChange={(event) => setHideResolvedAlerts(event.target.checked)}
+                  />
+                  Hide Resolved
+                </label>
+              </div>
+              <button
+                type="button"
+                className="btn tiny ghost"
+                disabled={alertsLoading}
+                onClick={() => {
+                  setAlertsLoading(true);
+                  Promise.all([loadAlertEvents(500), loadAlertGroupStates()])
+                    .then(() => {
+                      setAlertsError("");
+                    })
+                    .catch((err) => setAlertsError(err.message || "Unable to load webhook alerts."))
+                    .finally(() => setAlertsLoading(false));
+                }}
+              >
+                {alertsLoading ? "Refreshing..." : "Refresh"}
+              </button>
+            </div>
+
+            {alertsError && <p className="error">{alertsError}</p>}
+            {alertsLoading ? (
+              <p className="muted">Loading webhook alerts...</p>
+            ) : groupedAlertEvents.length === 0 ? (
+              <p className="muted">No webhook alerts have been received yet.</p>
+            ) : filteredAlertGroups.length === 0 ? (
+              <p className="muted">No alert groups match the current filters.</p>
+            ) : (
+              <div className="alerts-groups">
+                {filteredAlertGroups.map((group) => {
+                  const statusBucket = alertGroupStatusBucket(group);
+                  const severityBucket = alertGroupSeverityBucket(group);
+                  return (
+                    <article key={group.groupKey} className="alerts-group-card">
+                      <header className="alerts-group-header">
+                        <div className="alerts-group-title-wrap">
+                          <h3>{group.latest?.alert_name || "Unnamed Alert"}</h3>
+                          <p className="alerts-group-subtitle">
+                            Fingerprint:{" "}
+                            <span className="alerts-fingerprint">{group.fingerprint || "N/A"}</span>
+                          </p>
+                        </div>
+                        <div className="alerts-group-icons">
+                          <span
+                            className="alerts-group-icon-chip"
+                            title={`Latest status: ${alertGroupStatusLabel(statusBucket)}`}
+                          >
+                            <span
+                              className={`alerts-group-icon status ${alertGroupStatusTone(statusBucket)}`}
+                              aria-hidden="true"
+                            />
+                            <span>{alertGroupStatusLabel(statusBucket)}</span>
+                          </span>
+                          <span
+                            className="alerts-group-icon-chip"
+                            title={`Latest severity: ${alertSeverityLabel(severityBucket)}`}
+                          >
+                            <span
+                              className={`alerts-group-icon severity ${alertSeverityTone(severityBucket)}`}
+                              aria-hidden="true"
+                            />
+                            <span>{alertSeverityLabel(severityBucket)}</span>
+                          </span>
+                        </div>
+                        <div className="alerts-group-menu-wrap">
+                          <button
+                            type="button"
+                            className="btn tiny ghost alerts-group-menu-trigger"
+                            aria-haspopup="menu"
+                            aria-expanded={alertGroupMenuOpen === group.groupKey}
+                            onClick={() =>
+                              setAlertGroupMenuOpen((current) =>
+                                current === group.groupKey ? null : group.groupKey
+                              )
+                            }
+                            disabled={alertGroupActionBusyKey === group.groupKey}
+                          >
+                            ⋯
+                          </button>
+                          {alertGroupMenuOpen === group.groupKey && (
+                            <div className="alerts-group-menu" role="menu">
+                              <button
+                                type="button"
+                                className="alerts-group-menu-item"
+                                role="menuitem"
+                                disabled={alertGroupActionBusyKey === group.groupKey}
+                                onClick={() =>
+                                  handleSetAlertGroupResolved(group, !group.manualResolvedActive)
+                                }
+                              >
+                                {group.manualResolvedActive ? "Reopen Group" : "Mark Resolved"}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </header>
+
+                      <div className="alerts-group-meta">
+                        <span>{group.count} event{group.count === 1 ? "" : "s"}</span>
+                        <span>Latest {formatTimestamp(group.latest?.received_at)}</span>
+                      </div>
+
+                      <div className="alerts-table-wrap">
+                        <table className="alerts-table alerts-table-grouped">
+                          <thead>
+                            <tr>
+                              <th>Received</th>
+                              <th>Status</th>
+                              <th>Severity</th>
+                              <th>Stream</th>
+                              <th>Summary</th>
+                              <th>Starts</th>
+                              <th>Ends</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {group.events.map((event) => {
+                              const status = normalizeAlertStatus(
+                                event.alert_status || event.notification_status
+                              );
+                              const severity = normalizeAlertSeverity(event.severity);
+                              return (
+                                <tr key={event.id}>
+                                  <td>{formatTimestamp(event.received_at)}</td>
+                                  <td>
+                                    <span className={`status ${status || "unknown"}`}>
+                                      {alertStatusLabel(status)}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <span className={`status ${alertSeverityTone(severity)}`}>
+                                      {alertSeverityLabel(severity)}
+                                    </span>
+                                  </td>
+                                  <td>{event.stream_name || "N/A"}</td>
+                                  <td>{event.summary || event.description || "N/A"}</td>
+                                  <td>{formatTimestamp(event.starts_at)}</td>
+                                  <td>{formatTimestamp(event.ends_at)}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
           </section>
         </main>
       ) : (

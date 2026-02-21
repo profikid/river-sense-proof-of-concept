@@ -1,11 +1,12 @@
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
-from datetime import datetime
-from typing import List, Optional
+from datetime import datetime, timezone
+from typing import Any, List, Optional
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import CONTENT_TYPE_LATEST, Gauge, generate_latest
 from sqlalchemy import text
@@ -13,9 +14,12 @@ from sqlalchemy.orm import Session
 
 from .database import Base, SessionLocal, engine, get_db
 from .frame_broker import FrameBroker
-from .models import CameraStream, SystemSettings
+from .models import AlertGroupState, AlertWebhookEvent, CameraStream, SystemSettings
 from .orchestrator import WorkerOrchestrator
 from .schemas import (
+    AlertGroupStateRead,
+    AlertGroupStateUpdate,
+    AlertWebhookEventRead,
     MessageResponse,
     StreamCreate,
     StreamRead,
@@ -144,6 +148,82 @@ SCHEMA_PATCHES = [
     "ALTER TABLE system_settings ALTER COLUMN live_preview_max_width SET NOT NULL",
     "ALTER TABLE system_settings ALTER COLUMN orientation_offset_deg SET NOT NULL",
     "ALTER TABLE system_settings ALTER COLUMN updated_at SET NOT NULL",
+    "CREATE TABLE IF NOT EXISTS alert_webhook_events ("
+    "id SERIAL PRIMARY KEY, "
+    "receiver VARCHAR(255), "
+    "group_key TEXT, "
+    "notification_status VARCHAR(64), "
+    "alert_status VARCHAR(64), "
+    "alert_name VARCHAR(255), "
+    "alert_uid VARCHAR(255), "
+    "severity VARCHAR(64), "
+    "stream_name VARCHAR(255), "
+    "fingerprint VARCHAR(255), "
+    "summary TEXT, "
+    "description TEXT, "
+    "starts_at TIMESTAMP, "
+    "ends_at TIMESTAMP, "
+    "labels JSONB NOT NULL DEFAULT '{}'::jsonb, "
+    "annotations JSONB NOT NULL DEFAULT '{}'::jsonb, "
+    "values JSONB NOT NULL DEFAULT '{}'::jsonb, "
+    "raw_payload JSONB NOT NULL DEFAULT '{}'::jsonb, "
+    "received_at TIMESTAMP NOT NULL DEFAULT NOW())",
+    "ALTER TABLE alert_webhook_events ADD COLUMN IF NOT EXISTS receiver VARCHAR(255)",
+    "ALTER TABLE alert_webhook_events ADD COLUMN IF NOT EXISTS group_key TEXT",
+    "ALTER TABLE alert_webhook_events ADD COLUMN IF NOT EXISTS notification_status VARCHAR(64)",
+    "ALTER TABLE alert_webhook_events ADD COLUMN IF NOT EXISTS alert_status VARCHAR(64)",
+    "ALTER TABLE alert_webhook_events ADD COLUMN IF NOT EXISTS alert_name VARCHAR(255)",
+    "ALTER TABLE alert_webhook_events ADD COLUMN IF NOT EXISTS alert_uid VARCHAR(255)",
+    "ALTER TABLE alert_webhook_events ADD COLUMN IF NOT EXISTS severity VARCHAR(64)",
+    "ALTER TABLE alert_webhook_events ADD COLUMN IF NOT EXISTS stream_name VARCHAR(255)",
+    "ALTER TABLE alert_webhook_events ADD COLUMN IF NOT EXISTS fingerprint VARCHAR(255)",
+    "ALTER TABLE alert_webhook_events ADD COLUMN IF NOT EXISTS summary TEXT",
+    "ALTER TABLE alert_webhook_events ADD COLUMN IF NOT EXISTS description TEXT",
+    "ALTER TABLE alert_webhook_events ADD COLUMN IF NOT EXISTS starts_at TIMESTAMP",
+    "ALTER TABLE alert_webhook_events ADD COLUMN IF NOT EXISTS ends_at TIMESTAMP",
+    "ALTER TABLE alert_webhook_events ADD COLUMN IF NOT EXISTS labels JSONB",
+    "ALTER TABLE alert_webhook_events ADD COLUMN IF NOT EXISTS annotations JSONB",
+    "ALTER TABLE alert_webhook_events ADD COLUMN IF NOT EXISTS values JSONB",
+    "ALTER TABLE alert_webhook_events ADD COLUMN IF NOT EXISTS raw_payload JSONB",
+    "ALTER TABLE alert_webhook_events ADD COLUMN IF NOT EXISTS received_at TIMESTAMP",
+    "UPDATE alert_webhook_events SET labels = '{}'::jsonb WHERE labels IS NULL",
+    "UPDATE alert_webhook_events SET annotations = '{}'::jsonb WHERE annotations IS NULL",
+    "UPDATE alert_webhook_events SET values = '{}'::jsonb WHERE values IS NULL",
+    "UPDATE alert_webhook_events SET raw_payload = '{}'::jsonb WHERE raw_payload IS NULL",
+    "UPDATE alert_webhook_events SET received_at = NOW() WHERE received_at IS NULL",
+    "ALTER TABLE alert_webhook_events ALTER COLUMN labels SET DEFAULT '{}'::jsonb",
+    "ALTER TABLE alert_webhook_events ALTER COLUMN annotations SET DEFAULT '{}'::jsonb",
+    "ALTER TABLE alert_webhook_events ALTER COLUMN values SET DEFAULT '{}'::jsonb",
+    "ALTER TABLE alert_webhook_events ALTER COLUMN raw_payload SET DEFAULT '{}'::jsonb",
+    "ALTER TABLE alert_webhook_events ALTER COLUMN received_at SET DEFAULT NOW()",
+    "ALTER TABLE alert_webhook_events ALTER COLUMN labels SET NOT NULL",
+    "ALTER TABLE alert_webhook_events ALTER COLUMN annotations SET NOT NULL",
+    "ALTER TABLE alert_webhook_events ALTER COLUMN values SET NOT NULL",
+    "ALTER TABLE alert_webhook_events ALTER COLUMN raw_payload SET NOT NULL",
+    "ALTER TABLE alert_webhook_events ALTER COLUMN received_at SET NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_alert_webhook_events_received_at "
+    "ON alert_webhook_events (received_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_alert_webhook_events_alert_name "
+    "ON alert_webhook_events (alert_name)",
+    "CREATE INDEX IF NOT EXISTS idx_alert_webhook_events_fingerprint "
+    "ON alert_webhook_events (fingerprint)",
+    "CREATE TABLE IF NOT EXISTS alert_group_states ("
+    "identifier VARCHAR(1024) PRIMARY KEY, "
+    "resolved BOOLEAN NOT NULL DEFAULT FALSE, "
+    "resolved_at TIMESTAMP, "
+    "updated_at TIMESTAMP NOT NULL DEFAULT NOW())",
+    "ALTER TABLE alert_group_states ADD COLUMN IF NOT EXISTS identifier VARCHAR(1024)",
+    "ALTER TABLE alert_group_states ADD COLUMN IF NOT EXISTS resolved BOOLEAN",
+    "ALTER TABLE alert_group_states ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP",
+    "ALTER TABLE alert_group_states ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
+    "UPDATE alert_group_states SET resolved = FALSE WHERE resolved IS NULL",
+    "UPDATE alert_group_states SET updated_at = NOW() WHERE updated_at IS NULL",
+    "ALTER TABLE alert_group_states ALTER COLUMN resolved SET DEFAULT FALSE",
+    "ALTER TABLE alert_group_states ALTER COLUMN updated_at SET DEFAULT NOW()",
+    "ALTER TABLE alert_group_states ALTER COLUMN resolved SET NOT NULL",
+    "ALTER TABLE alert_group_states ALTER COLUMN updated_at SET NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_alert_group_states_resolved "
+    "ON alert_group_states (resolved)",
 ]
 
 
@@ -297,6 +377,77 @@ def serialize_system_settings(settings: SystemSettings) -> SystemSettingsRead:
     )
 
 
+def normalize_text(value: Any, max_length: Optional[int] = None) -> Optional[str]:
+    if value is None:
+        return None
+
+    text_value = str(value).strip()
+    if not text_value:
+        return None
+    if max_length is not None:
+        return text_value[:max_length]
+    return text_value
+
+
+def normalize_payload_map(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def parse_alert_timestamp(value: Any) -> Optional[datetime]:
+    raw = normalize_text(value)
+    if raw is None or raw.startswith("0001-01-01"):
+        return None
+
+    candidate = raw.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError:
+        trimmed = re.sub(r"\.(\d{6})\d+(?=([+-]\d{2}:\d{2})?$)", r".\1", candidate)
+        try:
+            parsed = datetime.fromisoformat(trimmed)
+        except ValueError:
+            return None
+
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
+def serialize_alert_event(event: AlertWebhookEvent) -> AlertWebhookEventRead:
+    return AlertWebhookEventRead(
+        id=event.id,
+        receiver=event.receiver,
+        group_key=event.group_key,
+        notification_status=event.notification_status,
+        alert_status=event.alert_status,
+        alert_name=event.alert_name,
+        alert_uid=event.alert_uid,
+        severity=event.severity,
+        stream_name=event.stream_name,
+        fingerprint=event.fingerprint,
+        summary=event.summary,
+        description=event.description,
+        starts_at=event.starts_at,
+        ends_at=event.ends_at,
+        labels=event.labels or {},
+        annotations=event.annotations or {},
+        values=event.values or {},
+        raw_payload=event.raw_payload or {},
+        received_at=event.received_at,
+    )
+
+
+def serialize_alert_group_state(state: AlertGroupState) -> AlertGroupStateRead:
+    return AlertGroupStateRead(
+        identifier=state.identifier,
+        resolved=state.resolved,
+        resolved_at=state.resolved_at,
+        updated_at=state.updated_at,
+    )
+
+
 def restart_active_workers(db: Session) -> list[str]:
     errors: list[str] = []
     active_streams = db.query(CameraStream).filter(CameraStream.is_active.is_(True)).all()
@@ -315,6 +466,119 @@ def restart_active_workers(db: Session) -> list[str]:
 @app.get("/health")
 def healthcheck() -> dict:
     return {"status": "ok"}
+
+
+@app.post("/alerts/webhook")
+def receive_grafana_alerts(payload: dict[str, Any] = Body(...), db: Session = Depends(get_db)) -> dict:
+    alerts_payload = payload.get("alerts")
+    alerts = alerts_payload if isinstance(alerts_payload, list) else []
+
+    receiver = normalize_text(payload.get("receiver"), max_length=255)
+    group_key = normalize_text(payload.get("groupKey"), max_length=2048)
+    notification_status = normalize_text(payload.get("status"), max_length=64)
+    events: list[AlertWebhookEvent] = []
+
+    for item in alerts:
+        if not isinstance(item, dict):
+            continue
+
+        labels = normalize_payload_map(item.get("labels"))
+        annotations = normalize_payload_map(item.get("annotations"))
+        values = normalize_payload_map(item.get("values"))
+
+        events.append(
+            AlertWebhookEvent(
+                receiver=receiver,
+                group_key=group_key,
+                notification_status=notification_status,
+                alert_status=normalize_text(item.get("status"), max_length=64),
+                alert_name=normalize_text(labels.get("alertname"), max_length=255),
+                alert_uid=normalize_text(labels.get("__alert_rule_uid__"), max_length=255),
+                severity=normalize_text(labels.get("severity"), max_length=64),
+                stream_name=normalize_text(labels.get("stream_name"), max_length=255),
+                fingerprint=normalize_text(item.get("fingerprint"), max_length=255),
+                summary=normalize_text(annotations.get("summary"), max_length=4096),
+                description=normalize_text(annotations.get("description"), max_length=32768),
+                starts_at=parse_alert_timestamp(item.get("startsAt")),
+                ends_at=parse_alert_timestamp(item.get("endsAt")),
+                labels=labels,
+                annotations=annotations,
+                values=values,
+                raw_payload=payload,
+            )
+        )
+
+    if not events:
+        common_labels = normalize_payload_map(payload.get("commonLabels"))
+        common_annotations = normalize_payload_map(payload.get("commonAnnotations"))
+        events.append(
+            AlertWebhookEvent(
+                receiver=receiver,
+                group_key=group_key,
+                notification_status=notification_status,
+                alert_status=notification_status,
+                alert_name=normalize_text(common_labels.get("alertname"), max_length=255)
+                or normalize_text(payload.get("title"), max_length=255),
+                alert_uid=normalize_text(common_labels.get("__alert_rule_uid__"), max_length=255),
+                severity=normalize_text(common_labels.get("severity"), max_length=64),
+                stream_name=normalize_text(common_labels.get("stream_name"), max_length=255),
+                fingerprint=None,
+                summary=normalize_text(common_annotations.get("summary"), max_length=4096),
+                description=normalize_text(payload.get("message"), max_length=32768),
+                starts_at=None,
+                ends_at=None,
+                labels=common_labels,
+                annotations=common_annotations,
+                values={},
+                raw_payload=payload,
+            )
+        )
+
+    db.add_all(events)
+    db.commit()
+    logger.info("Saved %s alert webhook event(s) for receiver=%s", len(events), receiver)
+    return {"message": "Alerts received", "saved": len(events)}
+
+
+@app.get("/alerts", response_model=List[AlertWebhookEventRead])
+def list_alerts(
+    limit: int = Query(default=300, ge=1, le=2000),
+    db: Session = Depends(get_db),
+) -> List[AlertWebhookEventRead]:
+    events = (
+        db.query(AlertWebhookEvent)
+        .order_by(AlertWebhookEvent.received_at.desc(), AlertWebhookEvent.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return [serialize_alert_event(event) for event in events]
+
+
+@app.get("/alerts/group-states", response_model=List[AlertGroupStateRead])
+def list_alert_group_states(db: Session = Depends(get_db)) -> List[AlertGroupStateRead]:
+    states = db.query(AlertGroupState).order_by(AlertGroupState.updated_at.desc()).all()
+    return [serialize_alert_group_state(state) for state in states]
+
+
+@app.post("/alerts/group-states", response_model=AlertGroupStateRead)
+def upsert_alert_group_state(
+    payload: AlertGroupStateUpdate,
+    db: Session = Depends(get_db),
+) -> AlertGroupStateRead:
+    identifier = normalize_text(payload.identifier, max_length=1024)
+    if not identifier:
+        raise HTTPException(status_code=422, detail="identifier is required")
+
+    state = db.get(AlertGroupState, identifier)
+    if state is None:
+        state = AlertGroupState(identifier=identifier)
+
+    state.resolved = bool(payload.resolved)
+    state.resolved_at = datetime.utcnow() if state.resolved else None
+    db.add(state)
+    db.commit()
+    db.refresh(state)
+    return serialize_alert_group_state(state)
 
 
 @app.get("/streams", response_model=List[StreamRead])

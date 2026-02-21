@@ -65,6 +65,8 @@ graph TD
 │   ├── dashboards/vector-flow.json
 │   └── provisioning/
 │       ├── alerting/alert_rules.yml
+│       ├── alerting/contact_points.yml
+│       ├── alerting/notification_policies.yml
 │       ├── dashboards/dashboard.yml
 │       └── datasources/datasource.yml
 ├── frontend/
@@ -212,6 +214,8 @@ If the stream is active, saving config restarts its worker with the new settings
 - `GET /streams/{id}/worker-logs?tail=160` - latest worker activity log lines
 - `GET /settings/system` - global live preview system settings
 - `PUT /settings/system` - update global live preview throttling settings
+- `POST /alerts/webhook` - Grafana webhook receiver for alert notifications
+- `GET /alerts?limit=500` - list recently received webhook alerts
 - `GET /metrics` - API-level Prometheus metrics
 - `WS /ws/frames?stream_id=<uuid>` - live frame feed (filtered per stream)
 - `WS /ws/frames` - live frame feed for all streams
@@ -255,6 +259,19 @@ OpenAPI docs:
 - `orientation_offset_deg` global direction-to-map calibration offset
 - `updated_at` last settings update timestamp
 
+`alert_webhook_events` table:
+
+- `id` auto-increment primary key
+- `receiver` Grafana receiver/contact-point name
+- `group_key` Grafana notification group key
+- `notification_status` webhook-level status (`firing`/`resolved`)
+- `alert_status` per-alert status
+- `alert_name`, `alert_uid`, `severity`, `stream_name`, `fingerprint`
+- `summary`, `description`
+- `starts_at`, `ends_at`
+- `labels`, `annotations`, `values`, `raw_payload` (JSONB)
+- `received_at` webhook ingest timestamp
+
 ## Prometheus Metrics
 
 Workers expose these gauges/counters:
@@ -291,6 +308,8 @@ Grafana is auto-provisioned with:
 - Prometheus datasource (`uid: prometheus`)
 - Dashboard: **Vector Flow Overview** (`uid: vector-flow`)
 - Alert rule group: **vector-flow-alerts** (provisioned from `grafana/provisioning/alerting/alert_rules.yml`)
+- Contact point: **vectorflow-alert-webhook** (webhook to `http://api:8000/alerts/webhook`)
+- Notification policy route to send all alerts to that contact point
 
 The frontend embeds this dashboard and passes the selected stream via `var-stream_name`.
 Dashboard panels include optical-flow metrics, per-stream vector direction/coherence, worker memory/GPU observability, a running-stream count stat, a fleet state pie chart (`running`, `deactivated`, `error`), and a Geomap panel with stream points + current-magnitude heatmap layers.
@@ -300,6 +319,7 @@ Frontend routes:
 - `/` Stream configuration + live preview.
 - `/live` Live overview grid with latest frame from every stream.
 - `/dashboard` Embedded Grafana overview.
+- `/alerts` Table of webhook alerts saved by the API.
 - `/settings` Global system settings (live preview throttling).
 - `?stream=<stream_id>` URL state for selected stream (used across app routes).
 - `?range=<5m|15m|30m|1h|3h|6h|12h|24h|7d>` dashboard time window for embedded Grafana.
@@ -325,12 +345,12 @@ Provisioned alert rules:
 - `Low Processing FPS` (per stream, `avg_over_time(vector_flow_fps[2m]) < 5`)
 - `Worker Memory High` (per stream, `vector_flow_worker_memory_percent > 90`)
 
-All rules are provisioned with `isPaused: true` so you can activate them explicitly.
+All rules are provisioned as active (`isPaused: false`) and are routed to the webhook contact point.
+The API stores incoming notifications, and the frontend `/alerts` page displays them in a table.
 
-To activate all rules:
+If you change any alerting provisioning file, restart Grafana:
 
 ```bash
-perl -0pi -e 's/isPaused: true/isPaused: false/g' grafana/provisioning/alerting/alert_rules.yml
 docker compose restart grafana
 ```
 
@@ -341,18 +361,11 @@ kubectl -n vectorflow create configmap vectorflow-grafana-provisioning \
   --from-file=datasource.yml=grafana/provisioning/datasources/datasource.yml \
   --from-file=dashboard.yml=grafana/provisioning/dashboards/dashboard.yml \
   --from-file=alert_rules.yml=grafana/provisioning/alerting/alert_rules.yml \
+  --from-file=contact_points.yml=grafana/provisioning/alerting/contact_points.yml \
+  --from-file=notification_policies.yml=grafana/provisioning/alerting/notification_policies.yml \
   --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n vectorflow rollout restart deployment/vectorflow-grafana
 ```
-
-To pause them again:
-
-```bash
-perl -0pi -e 's/isPaused: false/isPaused: true/g' grafana/provisioning/alerting/alert_rules.yml
-docker compose restart grafana
-```
-
-Kubernetes: re-apply the provisioning configmap and restart the Grafana deployment as above.
 
 ## Stream Validation and Errors
 

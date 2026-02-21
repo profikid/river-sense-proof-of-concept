@@ -1,7 +1,7 @@
 import uuid
 
 from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from .database import Base
 
@@ -46,6 +46,44 @@ class SystemSettings(Base):
     live_preview_jpeg_quality = Column(Integer, nullable=False, default=65)
     live_preview_max_width = Column(Integer, nullable=False, default=960)
     orientation_offset_deg = Column(Float, nullable=False, default=0.0)
+    updated_at = Column(
+        DateTime(timezone=False),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class AlertWebhookEvent(Base):
+    __tablename__ = "alert_webhook_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    receiver = Column(String(255), nullable=True)
+    group_key = Column(Text, nullable=True)
+    notification_status = Column(String(64), nullable=True)
+    alert_status = Column(String(64), nullable=True)
+    alert_name = Column(String(255), nullable=True)
+    alert_uid = Column(String(255), nullable=True)
+    severity = Column(String(64), nullable=True)
+    stream_name = Column(String(255), nullable=True)
+    fingerprint = Column(String(255), nullable=True)
+    summary = Column(Text, nullable=True)
+    description = Column(Text, nullable=True)
+    starts_at = Column(DateTime(timezone=False), nullable=True)
+    ends_at = Column(DateTime(timezone=False), nullable=True)
+    labels = Column(JSONB, nullable=False, default=dict)
+    annotations = Column(JSONB, nullable=False, default=dict)
+    values = Column(JSONB, nullable=False, default=dict)
+    raw_payload = Column(JSONB, nullable=False, default=dict)
+    received_at = Column(DateTime(timezone=False), nullable=False, server_default=func.now())
+
+
+class AlertGroupState(Base):
+    __tablename__ = "alert_group_states"
+
+    identifier = Column(String(1024), primary_key=True)
+    resolved = Column(Boolean, nullable=False, default=False)
+    resolved_at = Column(DateTime(timezone=False), nullable=True)
     updated_at = Column(
         DateTime(timezone=False),
         nullable=False,

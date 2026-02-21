@@ -87,7 +87,9 @@ groups:
           severity: warning
           component: vectorflow
           category: stream-health
-        isPaused: true
+        notification_settings:
+          receiver: vectorflow-alert-webhook
+        isPaused: false
 
       - uid: vf_running_below_active
         title: Running Streams Below Active Streams
@@ -170,7 +172,9 @@ groups:
           severity: warning
           component: vectorflow
           category: fleet-state
-        isPaused: true
+        notification_settings:
+          receiver: vectorflow-alert-webhook
+        isPaused: false
 
       - uid: vf_low_processing_fps
         title: Low Processing FPS
@@ -253,7 +257,9 @@ groups:
           severity: warning
           component: vectorflow
           category: performance
-        isPaused: true
+        notification_settings:
+          receiver: vectorflow-alert-webhook
+        isPaused: false
 
       - uid: vf_worker_memory_high
         title: Worker Memory High
@@ -269,7 +275,7 @@ groups:
                 type: prometheus
                 uid: prometheus
               editorMode: code
-              expr: max by (stream_name) (vector_flow_worker_memory_percent)
+              expr: max by (stream_name) (vector_flow_worker_memory_percent * 100)
               instant: true
               intervalMs: 1000
               maxDataPoints: 43200
@@ -336,4 +342,6 @@ groups:
           severity: critical
           component: vectorflow
           category: resources
-        isPaused: true
+        notification_settings:
+          receiver: vectorflow-alert-webhook
+        isPaused: false

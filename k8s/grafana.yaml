@@ -78,6 +78,10 @@ spec:
                 path: dashboards/dashboard.yml
               - key: alert_rules.yml
                 path: alerting/alert_rules.yml
+              - key: contact_points.yml
+                path: alerting/contact_points.yml
+              - key: notification_policies.yml
+                path: alerting/notification_policies.yml
         - name: dashboards
           configMap:
             name: vectorflow-grafana-dashboard

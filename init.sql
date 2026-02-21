@@ -108,3 +108,42 @@ INSERT INTO system_settings (
 )
 VALUES (1, 6.0, 65, 960, 0.0, NOW())
 ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS alert_webhook_events (
+    id SERIAL PRIMARY KEY,
+    receiver VARCHAR(255),
+    group_key TEXT,
+    notification_status VARCHAR(64),
+    alert_status VARCHAR(64),
+    alert_name VARCHAR(255),
+    alert_uid VARCHAR(255),
+    severity VARCHAR(64),
+    stream_name VARCHAR(255),
+    fingerprint VARCHAR(255),
+    summary TEXT,
+    description TEXT,
+    starts_at TIMESTAMP,
+    ends_at TIMESTAMP,
+    labels JSONB NOT NULL DEFAULT '{}'::jsonb,
+    annotations JSONB NOT NULL DEFAULT '{}'::jsonb,
+    values JSONB NOT NULL DEFAULT '{}'::jsonb,
+    raw_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    received_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_webhook_events_received_at
+    ON alert_webhook_events(received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alert_webhook_events_alert_name
+    ON alert_webhook_events(alert_name);
+CREATE INDEX IF NOT EXISTS idx_alert_webhook_events_fingerprint
+    ON alert_webhook_events(fingerprint);
+
+CREATE TABLE IF NOT EXISTS alert_group_states (
+    identifier VARCHAR(1024) PRIMARY KEY,
+    resolved BOOLEAN NOT NULL DEFAULT FALSE,
+    resolved_at TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_group_states_resolved
+    ON alert_group_states(resolved);

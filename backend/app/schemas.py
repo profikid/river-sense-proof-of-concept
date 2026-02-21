@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -95,6 +95,44 @@ class SystemSettingsUpdate(BaseModel):
 
 class SystemSettingsRead(SystemSettingsBase):
     id: int
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AlertWebhookEventRead(BaseModel):
+    id: int
+    receiver: Optional[str] = None
+    group_key: Optional[str] = None
+    notification_status: Optional[str] = None
+    alert_status: Optional[str] = None
+    alert_name: Optional[str] = None
+    alert_uid: Optional[str] = None
+    severity: Optional[str] = None
+    stream_name: Optional[str] = None
+    fingerprint: Optional[str] = None
+    summary: Optional[str] = None
+    description: Optional[str] = None
+    starts_at: Optional[datetime] = None
+    ends_at: Optional[datetime] = None
+    labels: dict[str, Any] = Field(default_factory=dict)
+    annotations: dict[str, Any] = Field(default_factory=dict)
+    values: dict[str, Any] = Field(default_factory=dict)
+    raw_payload: dict[str, Any] = Field(default_factory=dict)
+    received_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AlertGroupStateUpdate(BaseModel):
+    identifier: str = Field(min_length=1, max_length=1024)
+    resolved: bool = True
+
+
+class AlertGroupStateRead(BaseModel):
+    identifier: str
+    resolved: bool
+    resolved_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)

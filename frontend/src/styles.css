@@ -467,23 +467,25 @@ input:focus {
 
 .camera-angle-slider-horizontal {
   position: absolute;
-  left: 10px;
-  right: 34px;
-  bottom: 8px;
-  width: calc(100% - 44px);
+  left: 16px;
+  right: 48px;
+  bottom: 12px;
+  width: calc(100% - 64px);
   height: 12px;
   accent-color: var(--accent);
+  z-index: 4;
 }
 
 .camera-range-slider-vertical {
   position: absolute;
-  right: -4px;
+  right: 4px;
   top: 50%;
-  width: 88px;
+  width: 76px;
   height: 12px;
   transform: translateY(-50%) rotate(-90deg);
   transform-origin: center;
   accent-color: var(--accent);
+  z-index: 4;
 }
 
 .camera-angle-metrics {
@@ -507,6 +509,35 @@ input:focus {
 .map-row {
   align-items: center;
   justify-content: space-between;
+}
+
+.location-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.05fr) minmax(300px, 0.95fr);
+  gap: 0.75rem;
+  align-items: stretch;
+}
+
+.location-form-pane {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.location-map-pane {
+  min-width: 0;
+  display: flex;
+}
+
+.location-map-pane .stream-map-picker {
+  margin-top: 0;
+  width: 100%;
+  flex: 1;
+}
+
+.location-form-pane .camera-heading-controls {
+  margin-top: auto;
 }
 
 .location-search-shell {
@@ -1719,6 +1750,10 @@ input:focus {
 
   .dashboard-filter {
     max-width: 100%;
+  }
+
+  .location-layout {
+    grid-template-columns: 1fr;
   }
 
   .live-toolbar-actions {

@@ -2340,267 +2340,273 @@ export default function App() {
 
               <div className="config-section">
                 <h3>Location</h3>
-                <div className="location-search-shell">
-                  <label>
-                    Search Address / Place
-                    <div className="location-search-row">
+                <div className="location-layout">
+                  <div className="location-form-pane">
+                    <div className="location-search-shell">
+                      <label>
+                        Search Address / Place
+                        <div className="location-search-row">
+                          <input
+                            type="search"
+                            value={locationQuery}
+                            placeholder="Search city, address, landmark..."
+                            onChange={(event) => {
+                              setLocationQuery(event.target.value);
+                              setLocationSearchError("");
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                handleLocationSearch();
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="btn tiny"
+                            onClick={handleLocationSearch}
+                            disabled={locationSearching}
+                          >
+                            {locationSearching ? "Searching..." : "Search"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn tiny ghost"
+                            onClick={handleUseCurrentLocation}
+                            disabled={locatingCurrent}
+                          >
+                            {locatingCurrent ? "Locating..." : "Use Current"}
+                          </button>
+                        </div>
+                      </label>
+                      {locationSearchError && <p className="error">{locationSearchError}</p>}
+                      {locationResolvingPoint && (
+                        <p className="muted">Resolving nearby labels for selected coordinates...</p>
+                      )}
+                      {locationSearchResults.length > 0 && (
+                        <div className="location-search-results">
+                          {locationSearchResults.map((result, index) => (
+                            <button
+                              key={`${result.lat}-${result.lon}-${index}`}
+                              type="button"
+                              className="location-search-result"
+                              onClick={() => handleApplyLocationResult(result)}
+                            >
+                              <span className="location-result-title">{result.display_name}</span>
+                              <div className="location-result-meta">
+                                <small>
+                                  {toFixedValue(result.lat, 5, "0.00000")},{" "}
+                                  {toFixedValue(result.lon, 5, "0.00000")}
+                                </small>
+                                <span className={`location-result-source ${result.source || "search"}`}>
+                                  {locationSourceLabel(result.source)}
+                                </span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <label>
+                      Location Name
                       <input
-                        type="search"
-                        value={locationQuery}
-                        placeholder="Search city, address, landmark..."
-                        onChange={(event) => {
-                          setLocationQuery(event.target.value);
-                          setLocationSearchError("");
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            handleLocationSearch();
-                          }
-                        }}
+                        value={form.location_name}
+                        maxLength={LOCATION_NAME_MAX_LENGTH}
+                        placeholder="Auto-filled from search, map, or current location"
+                        onChange={(event) =>
+                          setForm((current) => ({ ...current, location_name: event.target.value }))
+                        }
                       />
-                      <button
-                        type="button"
-                        className="btn tiny"
-                        onClick={handleLocationSearch}
-                        disabled={locationSearching}
-                      >
-                        {locationSearching ? "Searching..." : "Search"}
-                      </button>
+                    </label>
+                    <div className="row two-col">
+                      <label>
+                        Latitude
+                        <input
+                          type="number"
+                          step="0.000001"
+                          min="-90"
+                          max="90"
+                          value={form.latitude}
+                          placeholder="37.774900"
+                          onChange={(event) =>
+                            setForm((current) => ({ ...current, latitude: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        Longitude
+                        <input
+                          type="number"
+                          step="0.000001"
+                          min="-180"
+                          max="180"
+                          value={form.longitude}
+                          placeholder="-122.419400"
+                          onChange={(event) =>
+                            setForm((current) => ({ ...current, longitude: event.target.value }))
+                          }
+                        />
+                      </label>
+                    </div>
+                    <div className="row camera-heading-controls">
+                      <label className="camera-angle-control">
+                        <div
+                          ref={cameraAngleVisualRef}
+                          className="camera-angle-visual"
+                          role="group"
+                          tabIndex={0}
+                          aria-label={`Direction ${Math.round(formOrientationDeg)} degrees`}
+                          onPointerDown={handleOrientationDialPointerDown}
+                          onPointerMove={handleOrientationDialPointerMove}
+                          onPointerUp={handleOrientationDialPointerUp}
+                          onPointerCancel={handleOrientationDialPointerUp}
+                          onKeyDown={handleOrientationDialKeyDown}
+                        >
+                          <svg
+                            className="camera-angle-svg"
+                            viewBox={`0 0 ${cameraAnglePreview.size} ${cameraAnglePreview.size}`}
+                            aria-hidden="true"
+                          >
+                            <circle
+                              className="camera-angle-ring"
+                              cx={cameraAnglePreview.center}
+                              cy={cameraAnglePreview.center}
+                              r="66"
+                            />
+                            <path className="camera-angle-cone" d={cameraAnglePreview.conePath} />
+                            <line
+                              className="camera-angle-boundary"
+                              x1={cameraAnglePreview.center}
+                              y1={cameraAnglePreview.center}
+                              x2={cameraAnglePreview.leftPoint.x}
+                              y2={cameraAnglePreview.leftPoint.y}
+                            />
+                            <line
+                              className="camera-angle-boundary"
+                              x1={cameraAnglePreview.center}
+                              y1={cameraAnglePreview.center}
+                              x2={cameraAnglePreview.rightPoint.x}
+                              y2={cameraAnglePreview.rightPoint.y}
+                            />
+                            <line
+                              className="camera-angle-heading"
+                              x1={cameraAnglePreview.center}
+                              y1={cameraAnglePreview.center}
+                              x2={cameraAnglePreview.headingPoint.x}
+                              y2={cameraAnglePreview.headingPoint.y}
+                            />
+                            <text
+                              className="camera-angle-north"
+                              x={cameraAnglePreview.center}
+                              y="18"
+                              textAnchor="middle"
+                            >
+                              N
+                            </text>
+                            <circle
+                              className="camera-angle-origin"
+                              cx={cameraAnglePreview.center}
+                              cy={cameraAnglePreview.center}
+                              r="6"
+                            />
+                          </svg>
+                          <input
+                            type="range"
+                            className="camera-angle-slider-horizontal"
+                            step="1"
+                            min={CAMERA_VIEW_ANGLE_MIN}
+                            max={CAMERA_VIEW_ANGLE_MAX}
+                            value={formViewAngleDeg}
+                            aria-label="View angle"
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onChange={(event) =>
+                              handleCameraViewChange("view_angle_deg", event.target.value)
+                            }
+                          />
+                          <input
+                            type="range"
+                            className="camera-range-slider-vertical"
+                            step={CAMERA_VIEW_DISTANCE_STEP}
+                            min={CAMERA_VIEW_DISTANCE_MIN}
+                            max={CAMERA_VIEW_DISTANCE_MAX}
+                            value={formViewDistanceM}
+                            aria-label="View range"
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onChange={(event) =>
+                              handleCameraViewChange("view_distance_m", event.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="camera-angle-metrics">
+                          <span>Dir {toFixedValue(formOrientationDeg, 0, "0")}deg</span>
+                          <span>Angle {toFixedValue(formViewAngleDeg, 0, "0")}deg</span>
+                          <span>Range {toFixedValue(formViewDistanceM, 0, "0")}m</span>
+                        </div>
+                      </label>
+                    </div>
+                    <div className="row map-row">
                       <button
                         type="button"
                         className="btn tiny ghost"
-                        onClick={handleUseCurrentLocation}
-                        disabled={locatingCurrent}
-                      >
-                        {locatingCurrent ? "Locating..." : "Use Current"}
-                      </button>
-                    </div>
-                  </label>
-                  {locationSearchError && <p className="error">{locationSearchError}</p>}
-                  {locationResolvingPoint && (
-                    <p className="muted">Resolving nearby labels for selected coordinates...</p>
-                  )}
-                  {locationSearchResults.length > 0 && (
-                    <div className="location-search-results">
-                      {locationSearchResults.map((result, index) => (
-                        <button
-                          key={`${result.lat}-${result.lon}-${index}`}
-                          type="button"
-                          className="location-search-result"
-                          onClick={() => handleApplyLocationResult(result)}
-                        >
-                          <span className="location-result-title">{result.display_name}</span>
-                          <div className="location-result-meta">
-                            <small>
-                              {toFixedValue(result.lat, 5, "0.00000")},{" "}
-                              {toFixedValue(result.lon, 5, "0.00000")}
-                            </small>
-                            <span className={`location-result-source ${result.source || "search"}`}>
-                              {locationSourceLabel(result.source)}
-                            </span>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <label>
-                  Location Name
-                  <input
-                    value={form.location_name}
-                    maxLength={LOCATION_NAME_MAX_LENGTH}
-                    placeholder="Auto-filled from search, map, or current location"
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, location_name: event.target.value }))
-                    }
-                  />
-                </label>
-                <div className="row two-col">
-                  <label>
-                    Latitude
-                    <input
-                      type="number"
-                      step="0.000001"
-                      min="-90"
-                      max="90"
-                      value={form.latitude}
-                      placeholder="37.774900"
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, latitude: event.target.value }))
-                      }
-                    />
-                  </label>
-                  <label>
-                    Longitude
-                    <input
-                      type="number"
-                      step="0.000001"
-                      min="-180"
-                      max="180"
-                      value={form.longitude}
-                      placeholder="-122.419400"
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, longitude: event.target.value }))
-                      }
-                    />
-                  </label>
-                </div>
-                <div className="row camera-heading-controls">
-                  <label className="camera-angle-control">
-                    <div
-                      ref={cameraAngleVisualRef}
-                      className="camera-angle-visual"
-                      role="group"
-                      tabIndex={0}
-                      aria-label={`Direction ${Math.round(formOrientationDeg)} degrees`}
-                      onPointerDown={handleOrientationDialPointerDown}
-                      onPointerMove={handleOrientationDialPointerMove}
-                      onPointerUp={handleOrientationDialPointerUp}
-                      onPointerCancel={handleOrientationDialPointerUp}
-                      onKeyDown={handleOrientationDialKeyDown}
-                    >
-                      <svg
-                        className="camera-angle-svg"
-                        viewBox={`0 0 ${cameraAnglePreview.size} ${cameraAnglePreview.size}`}
-                        aria-hidden="true"
-                      >
-                        <circle
-                          className="camera-angle-ring"
-                          cx={cameraAnglePreview.center}
-                          cy={cameraAnglePreview.center}
-                          r="66"
-                        />
-                        <path className="camera-angle-cone" d={cameraAnglePreview.conePath} />
-                        <line
-                          className="camera-angle-boundary"
-                          x1={cameraAnglePreview.center}
-                          y1={cameraAnglePreview.center}
-                          x2={cameraAnglePreview.leftPoint.x}
-                          y2={cameraAnglePreview.leftPoint.y}
-                        />
-                        <line
-                          className="camera-angle-boundary"
-                          x1={cameraAnglePreview.center}
-                          y1={cameraAnglePreview.center}
-                          x2={cameraAnglePreview.rightPoint.x}
-                          y2={cameraAnglePreview.rightPoint.y}
-                        />
-                        <line
-                          className="camera-angle-heading"
-                          x1={cameraAnglePreview.center}
-                          y1={cameraAnglePreview.center}
-                          x2={cameraAnglePreview.headingPoint.x}
-                          y2={cameraAnglePreview.headingPoint.y}
-                        />
-                        <text
-                          className="camera-angle-north"
-                          x={cameraAnglePreview.center}
-                          y="18"
-                          textAnchor="middle"
-                        >
-                          N
-                        </text>
-                        <circle
-                          className="camera-angle-origin"
-                          cx={cameraAnglePreview.center}
-                          cy={cameraAnglePreview.center}
-                          r="6"
-                        />
-                      </svg>
-                      <input
-                        type="range"
-                        className="camera-angle-slider-horizontal"
-                        step="1"
-                        min={CAMERA_VIEW_ANGLE_MIN}
-                        max={CAMERA_VIEW_ANGLE_MAX}
-                        value={formViewAngleDeg}
-                        aria-label="View angle"
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onChange={(event) =>
-                          handleCameraViewChange("view_angle_deg", event.target.value)
-                        }
-                      />
-                      <input
-                        type="range"
-                        className="camera-range-slider-vertical"
-                        step={CAMERA_VIEW_DISTANCE_STEP}
-                        min={CAMERA_VIEW_DISTANCE_MIN}
-                        max={CAMERA_VIEW_DISTANCE_MAX}
-                        value={formViewDistanceM}
-                        aria-label="View range"
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onChange={(event) =>
-                          handleCameraViewChange("view_distance_m", event.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="camera-angle-metrics">
-                      <span>Dir {toFixedValue(formOrientationDeg, 0, "0")}deg</span>
-                      <span>Angle {toFixedValue(formViewAngleDeg, 0, "0")}deg</span>
-                      <span>Range {toFixedValue(formViewDistanceM, 0, "0")}m</span>
-                    </div>
-                  </label>
-                </div>
-                <div className="row map-row">
-                  <button
-                    type="button"
-                    className="btn tiny ghost"
-                    onClick={() => {
-                      setForm((current) => ({
-                        ...current,
-                        location_name: "",
-                        latitude: "",
-                        longitude: "",
-                      }));
-                      setLocationSearchError("");
-                      setLocationSearchResults([]);
-                      setLocationQuery("");
-                    }}
-                  >
-                    Clear Coordinates
-                  </button>
-                  <span className="muted">
-                    Search, use current location, or click map to set camera point; adjust orientation and cone.
-                  </span>
-                </div>
-                <div className="stream-map-picker map-with-basemap">
-                  <MapBasemapSelector value={mapBasemap} onChange={setMapBasemap} />
-                  <MapContainer
-                    center={mapCenter}
-                    zoom={mapZoom}
-                    scrollWheelZoom
-                    className="stream-map-canvas"
-                  >
-                    <TileLayer {...mapTileLayerProps} />
-                    <StreamMapClickCapture
-                      onPick={handleMapPointSelection}
-                    />
-                    <StreamMapCenter
-                      latitude={formLatitude}
-                      longitude={formLongitude}
-                      focusKey={selectedStreamId || "new-stream"}
-                    />
-                    {hasFormCoordinates && cameraViewPolygon && (
-                      <Polygon
-                        positions={cameraViewPolygon}
-                        pathOptions={{
-                          color: "#16f2b3",
-                          fillColor: "#16f2b3",
-                          fillOpacity: 0.22,
-                          weight: 1.6,
+                        onClick={() => {
+                          setForm((current) => ({
+                            ...current,
+                            location_name: "",
+                            latitude: "",
+                            longitude: "",
+                          }));
+                          setLocationSearchError("");
+                          setLocationSearchResults([]);
+                          setLocationQuery("");
                         }}
-                      />
-                    )}
-                    {hasFormCoordinates && (
-                      <Marker position={[formLatitude, formLongitude]} icon={cameraMarkerIcon}>
-                        <Tooltip direction="top" offset={[0, -14]} opacity={0.9} permanent>
-                          {(normalizeLocationName(form.location_name) || "Camera") +
-                            ` · ${toFixedValue(formOrientationDeg, 0, "0")}°`}
-                        </Tooltip>
-                      </Marker>
-                    )}
-                  </MapContainer>
+                      >
+                        Clear Coordinates
+                      </button>
+                      <span className="muted">
+                        Search, use current location, or click map to set camera point; adjust orientation and cone.
+                      </span>
+                    </div>
+                  </div>
+                  <div className="location-map-pane">
+                    <div className="stream-map-picker map-with-basemap">
+                      <MapBasemapSelector value={mapBasemap} onChange={setMapBasemap} />
+                      <MapContainer
+                        center={mapCenter}
+                        zoom={mapZoom}
+                        scrollWheelZoom
+                        className="stream-map-canvas"
+                      >
+                        <TileLayer {...mapTileLayerProps} />
+                        <StreamMapClickCapture
+                          onPick={handleMapPointSelection}
+                        />
+                        <StreamMapCenter
+                          latitude={formLatitude}
+                          longitude={formLongitude}
+                          focusKey={selectedStreamId || "new-stream"}
+                        />
+                        {hasFormCoordinates && cameraViewPolygon && (
+                          <Polygon
+                            positions={cameraViewPolygon}
+                            pathOptions={{
+                              color: "#16f2b3",
+                              fillColor: "#16f2b3",
+                              fillOpacity: 0.22,
+                              weight: 1.6,
+                            }}
+                          />
+                        )}
+                        {hasFormCoordinates && (
+                          <Marker position={[formLatitude, formLongitude]} icon={cameraMarkerIcon}>
+                            <Tooltip direction="top" offset={[0, -14]} opacity={0.9} permanent>
+                              {(normalizeLocationName(form.location_name) || "Camera") +
+                                ` · ${toFixedValue(formOrientationDeg, 0, "0")}°`}
+                            </Tooltip>
+                          </Marker>
+                        )}
+                      </MapContainer>
+                    </div>
+                  </div>
                 </div>
               </div>
 

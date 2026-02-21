@@ -226,6 +226,12 @@ input:focus {
   grid-template-columns: 1fr 1fr;
 }
 
+.row.three-col {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .map-row {
   align-items: center;
   justify-content: space-between;
@@ -239,7 +245,7 @@ input:focus {
 
 .location-search-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   gap: 0.45rem;
   align-items: center;
 }
@@ -273,9 +279,46 @@ input:focus {
   background: rgba(13, 36, 48, 0.95);
 }
 
+.location-result-title {
+  display: block;
+}
+
+.location-result-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+}
+
 .location-search-result small {
   font-size: 0.72rem;
   color: var(--muted);
+}
+
+.location-result-source {
+  border: 1px solid rgba(140, 203, 211, 0.35);
+  border-radius: 999px;
+  padding: 0.14rem 0.45rem;
+  font-size: 0.68rem;
+  color: var(--muted);
+  background: rgba(7, 20, 29, 0.72);
+  white-space: nowrap;
+}
+
+.location-result-source.current {
+  color: var(--accent-soft);
+  border-color: rgba(22, 242, 179, 0.55);
+}
+
+.location-result-source.map,
+.location-result-source.around {
+  color: #9ac4ff;
+  border-color: rgba(118, 171, 255, 0.45);
+}
+
+.location-result-source.pin {
+  color: #ffe0a3;
+  border-color: rgba(246, 195, 88, 0.55);
 }
 
 .stream-map-picker {
@@ -287,7 +330,7 @@ input:focus {
 
 .stream-map-canvas {
   width: 100%;
-  height: 250px;
+  aspect-ratio: 1 / 1;
   background: #eef2f4;
 }
 
@@ -301,6 +344,45 @@ input:focus {
   color: #122634;
   background: rgba(255, 255, 255, 0.95);
   border-color: rgba(57, 100, 122, 0.3);
+}
+
+.camera-map-icon-wrap {
+  background: transparent;
+  border: 0;
+}
+
+.camera-map-icon {
+  width: 24px;
+  height: 18px;
+  border-radius: 5px;
+  border: 2px solid #16f2b3;
+  background: rgba(8, 41, 58, 0.95);
+  position: relative;
+  box-shadow: 0 0 0 1px rgba(7, 20, 29, 0.35);
+}
+
+.camera-map-icon::before {
+  content: "";
+  position: absolute;
+  right: -6px;
+  top: 4px;
+  width: 6px;
+  height: 8px;
+  border-radius: 2px;
+  border: 2px solid #16f2b3;
+  border-left: 0;
+  background: rgba(8, 41, 58, 0.95);
+}
+
+.camera-map-lens {
+  position: absolute;
+  left: 6px;
+  top: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 2px solid #16f2b3;
+  background: rgba(3, 14, 21, 0.9);
 }
 
 .btn {
@@ -1006,6 +1088,10 @@ input:focus {
   }
 
   .row.two-col {
+    grid-template-columns: 1fr;
+  }
+
+  .row.three-col {
     grid-template-columns: 1fr;
   }
 

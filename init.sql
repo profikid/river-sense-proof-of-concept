@@ -4,8 +4,12 @@ CREATE TABLE IF NOT EXISTS camera_streams (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
     rtsp_url TEXT NOT NULL,
+    location_name TEXT,
     latitude DOUBLE PRECISION,
     longitude DOUBLE PRECISION,
+    orientation_deg DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    view_angle_deg DOUBLE PRECISION NOT NULL DEFAULT 60.0,
+    view_distance_m DOUBLE PRECISION NOT NULL DEFAULT 120.0,
     grid_size INTEGER NOT NULL DEFAULT 16,
     win_radius INTEGER NOT NULL DEFAULT 8,
     threshold DOUBLE PRECISION NOT NULL DEFAULT 1.2,
@@ -23,8 +27,12 @@ CREATE TABLE IF NOT EXISTS camera_streams (
 );
 
 ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS win_radius INTEGER;
+ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS location_name TEXT;
 ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION;
 ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;
+ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS orientation_deg DOUBLE PRECISION;
+ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS view_angle_deg DOUBLE PRECISION;
+ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS view_distance_m DOUBLE PRECISION;
 ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS arrow_scale DOUBLE PRECISION;
 ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS arrow_opacity DOUBLE PRECISION;
 ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS gradient_intensity DOUBLE PRECISION;
@@ -41,6 +49,9 @@ UPDATE camera_streams SET show_feed = TRUE WHERE show_feed IS NULL;
 UPDATE camera_streams SET show_arrows = TRUE WHERE show_arrows IS NULL;
 UPDATE camera_streams SET show_magnitude = FALSE WHERE show_magnitude IS NULL;
 UPDATE camera_streams SET show_trails = FALSE WHERE show_trails IS NULL;
+UPDATE camera_streams SET orientation_deg = 0.0 WHERE orientation_deg IS NULL;
+UPDATE camera_streams SET view_angle_deg = 60.0 WHERE view_angle_deg IS NULL;
+UPDATE camera_streams SET view_distance_m = 120.0 WHERE view_distance_m IS NULL;
 
 ALTER TABLE camera_streams ALTER COLUMN win_radius SET DEFAULT 8;
 ALTER TABLE camera_streams ALTER COLUMN arrow_scale SET DEFAULT 4.0;
@@ -50,6 +61,9 @@ ALTER TABLE camera_streams ALTER COLUMN show_feed SET DEFAULT TRUE;
 ALTER TABLE camera_streams ALTER COLUMN show_arrows SET DEFAULT TRUE;
 ALTER TABLE camera_streams ALTER COLUMN show_magnitude SET DEFAULT FALSE;
 ALTER TABLE camera_streams ALTER COLUMN show_trails SET DEFAULT FALSE;
+ALTER TABLE camera_streams ALTER COLUMN orientation_deg SET DEFAULT 0.0;
+ALTER TABLE camera_streams ALTER COLUMN view_angle_deg SET DEFAULT 60.0;
+ALTER TABLE camera_streams ALTER COLUMN view_distance_m SET DEFAULT 120.0;
 
 ALTER TABLE camera_streams ALTER COLUMN win_radius SET NOT NULL;
 ALTER TABLE camera_streams ALTER COLUMN arrow_scale SET NOT NULL;
@@ -59,6 +73,9 @@ ALTER TABLE camera_streams ALTER COLUMN show_feed SET NOT NULL;
 ALTER TABLE camera_streams ALTER COLUMN show_arrows SET NOT NULL;
 ALTER TABLE camera_streams ALTER COLUMN show_magnitude SET NOT NULL;
 ALTER TABLE camera_streams ALTER COLUMN show_trails SET NOT NULL;
+ALTER TABLE camera_streams ALTER COLUMN orientation_deg SET NOT NULL;
+ALTER TABLE camera_streams ALTER COLUMN view_angle_deg SET NOT NULL;
+ALTER TABLE camera_streams ALTER COLUMN view_distance_m SET NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_camera_streams_active ON camera_streams(is_active);
 

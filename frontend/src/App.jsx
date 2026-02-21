@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CircleMarker, MapContainer, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { divIcon } from "leaflet";
+import { MapContainer, Marker, Polygon, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 const API_BASE = normalizeHttpBase(import.meta.env.VITE_API_URL || "http://localhost:8000");
@@ -25,8 +26,12 @@ const DEFAULT_FORM = {
   name: "",
   rtsp_url:
     "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+  location_name: "",
   latitude: "",
   longitude: "",
+  orientation_deg: 0,
+  view_angle_deg: 60,
+  view_distance_m: 120,
   ...DEFAULT_STREAM_CONFIG,
   is_active: false,
 };
@@ -105,8 +110,17 @@ const LIVE_LAYOUT_OPTIONS = [
 const MAP_DEFAULT_CENTER = [37.0902, -95.7129];
 const MAP_DEFAULT_ZOOM = 4;
 const MAP_SELECTED_ZOOM = 13;
+const CAMERA_ORIENTATION_MIN = 0;
+const CAMERA_ORIENTATION_MAX = 359.9;
+const CAMERA_VIEW_ANGLE_MIN = 5;
+const CAMERA_VIEW_ANGLE_MAX = 170;
+const CAMERA_VIEW_DISTANCE_MIN = 10;
+const CAMERA_VIEW_DISTANCE_MAX = 5000;
+const LOCATION_NAME_MAX_LENGTH = 512;
 const LOCATION_SEARCH_MIN_LENGTH = 3;
 const LOCATION_SEARCH_LIMIT = 6;
+const LOCATION_REVERSE_ZOOM_LEVELS = [18, 16, 14];
+const EARTH_RADIUS_M = 6371000;
 
 function normalizeDashboardRange(value) {
   const candidate = String(value || "").trim();
@@ -172,6 +186,7 @@ function streamToForm(stream) {
   return {
     name: stream.name ?? "",
     rtsp_url: stream.rtsp_url ?? "",
+    location_name: stream.location_name ?? "",
     latitude:
       Number.isFinite(Number(stream.latitude)) && stream.latitude !== null
         ? Number(stream.latitude).toFixed(6)
@@ -180,6 +195,15 @@ function streamToForm(stream) {
       Number.isFinite(Number(stream.longitude)) && stream.longitude !== null
         ? Number(stream.longitude).toFixed(6)
         : "",
+    orientation_deg: Number.isFinite(Number(stream.orientation_deg))
+      ? Number(stream.orientation_deg)
+      : DEFAULT_FORM.orientation_deg,
+    view_angle_deg: Number.isFinite(Number(stream.view_angle_deg))
+      ? Number(stream.view_angle_deg)
+      : DEFAULT_FORM.view_angle_deg,
+    view_distance_m: Number.isFinite(Number(stream.view_distance_m))
+      ? Number(stream.view_distance_m)
+      : DEFAULT_FORM.view_distance_m,
     is_active: !!stream.is_active,
     grid_size: stream.grid_size ?? DEFAULT_STREAM_CONFIG.grid_size,
     win_radius: stream.win_radius ?? DEFAULT_STREAM_CONFIG.win_radius,
@@ -209,12 +233,118 @@ function parseOptionalCoordinate(value, min, max) {
   return Number(numeric.toFixed(6));
 }
 
+function normalizeLocationName(value) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  return String(value).replace(/\s+/g, " ").trim().slice(0, LOCATION_NAME_MAX_LENGTH);
+}
+
+function buildPinnedPointName(latitude, longitude) {
+  return `Pinned point (${Number(latitude).toFixed(5)}, ${Number(longitude).toFixed(5)})`;
+}
+
+function locationSourceLabel(source) {
+  if (source === "current") return "Current";
+  if (source === "map") return "Point";
+  if (source === "around") return "Nearby";
+  if (source === "pin") return "Pin";
+  return "Search";
+}
+
+function isFiniteInRange(value, min, max) {
+  return Number.isFinite(value) && value >= min && value <= max;
+}
+
+function clampNumber(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function parseBoundedNumber(value, min, max, fallback) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return clampNumber(numeric, min, max);
+}
+
+function normalizeOrientation(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return DEFAULT_FORM.orientation_deg;
+  }
+  const normalized = ((numeric % 360) + 360) % 360;
+  return clampNumber(normalized, CAMERA_ORIENTATION_MIN, CAMERA_ORIENTATION_MAX);
+}
+
+function destinationPoint(latitude, longitude, bearingDeg, distanceMeters) {
+  const bearing = (bearingDeg * Math.PI) / 180;
+  const angularDistance = distanceMeters / EARTH_RADIUS_M;
+  const lat1 = (latitude * Math.PI) / 180;
+  const lon1 = (longitude * Math.PI) / 180;
+
+  const sinLat1 = Math.sin(lat1);
+  const cosLat1 = Math.cos(lat1);
+  const sinAngularDistance = Math.sin(angularDistance);
+  const cosAngularDistance = Math.cos(angularDistance);
+
+  const lat2 = Math.asin(
+    sinLat1 * cosAngularDistance + cosLat1 * sinAngularDistance * Math.cos(bearing)
+  );
+  const lon2 =
+    lon1 +
+    Math.atan2(
+      Math.sin(bearing) * sinAngularDistance * cosLat1,
+      cosAngularDistance - sinLat1 * Math.sin(lat2)
+    );
+
+  const normalizedLon = ((((lon2 * 180) / Math.PI) + 540) % 360) - 180;
+  return [Number((lat2 * 180 / Math.PI).toFixed(6)), Number(normalizedLon.toFixed(6))];
+}
+
+function buildCameraViewPolygon(latitude, longitude, orientationDeg, viewAngleDeg, viewDistanceM) {
+  const halfAngle = clampNumber(viewAngleDeg / 2, 1, 85);
+  const left = destinationPoint(latitude, longitude, orientationDeg - halfAngle, viewDistanceM);
+  const center = destinationPoint(latitude, longitude, orientationDeg, viewDistanceM);
+  const right = destinationPoint(latitude, longitude, orientationDeg + halfAngle, viewDistanceM);
+  return [
+    [latitude, longitude],
+    left,
+    center,
+    right,
+  ];
+}
+
 function buildPayload(form) {
+  const latitude = parseOptionalCoordinate(form.latitude, -90, 90);
+  const longitude = parseOptionalCoordinate(form.longitude, -180, 180);
+  const orientation = normalizeOrientation(form.orientation_deg);
+  const viewAngle = parseBoundedNumber(
+    form.view_angle_deg,
+    CAMERA_VIEW_ANGLE_MIN,
+    CAMERA_VIEW_ANGLE_MAX,
+    DEFAULT_FORM.view_angle_deg
+  );
+  const viewDistance = parseBoundedNumber(
+    form.view_distance_m,
+    CAMERA_VIEW_DISTANCE_MIN,
+    CAMERA_VIEW_DISTANCE_MAX,
+    DEFAULT_FORM.view_distance_m
+  );
+  let locationName = normalizeLocationName(form.location_name);
+  if (latitude !== null && longitude !== null && !locationName) {
+    locationName = buildPinnedPointName(latitude, longitude);
+  }
+
   return {
     name: form.name.trim(),
     rtsp_url: form.rtsp_url.trim(),
-    latitude: parseOptionalCoordinate(form.latitude, -90, 90),
-    longitude: parseOptionalCoordinate(form.longitude, -180, 180),
+    location_name: locationName || null,
+    latitude,
+    longitude,
+    orientation_deg: Number(orientation.toFixed(1)),
+    view_angle_deg: Number(viewAngle.toFixed(1)),
+    view_distance_m: Number(viewDistance.toFixed(1)),
     is_active: !!form.is_active,
     grid_size: Number(form.grid_size),
     win_radius: Number(form.win_radius),
@@ -305,7 +435,7 @@ function StreamMapCenter({ latitude, longitude, focusKey }) {
   useEffect(() => {
     const hasCoordinates = Number.isFinite(latitude) && Number.isFinite(longitude);
     const targetCenter = hasCoordinates ? [latitude, longitude] : MAP_DEFAULT_CENTER;
-    const targetZoom = hasCoordinates ? MAP_SELECTED_ZOOM : MAP_DEFAULT_ZOOM;
+    const targetZoom = hasCoordinates ? Math.max(map.getZoom(), MAP_SELECTED_ZOOM) : MAP_DEFAULT_ZOOM;
 
     const applyCenter = () => {
       map.invalidateSize({ pan: false, debounceMoveend: true });
@@ -355,6 +485,8 @@ export default function App() {
   const [liveLayout, setLiveLayout] = useState("grid");
   const [locationQuery, setLocationQuery] = useState("");
   const [locationSearching, setLocationSearching] = useState(false);
+  const [locationResolvingPoint, setLocationResolvingPoint] = useState(false);
+  const [locatingCurrent, setLocatingCurrent] = useState(false);
   const [locationSearchError, setLocationSearchError] = useState("");
   const [locationSearchResults, setLocationSearchResults] = useState([]);
 
@@ -373,11 +505,64 @@ export default function App() {
     () => parseOptionalCoordinate(form.longitude, -180, 180),
     [form.longitude]
   );
+  const formOrientationDeg = useMemo(
+    () => normalizeOrientation(form.orientation_deg),
+    [form.orientation_deg]
+  );
+  const formViewAngleDeg = useMemo(
+    () =>
+      parseBoundedNumber(
+        form.view_angle_deg,
+        CAMERA_VIEW_ANGLE_MIN,
+        CAMERA_VIEW_ANGLE_MAX,
+        DEFAULT_FORM.view_angle_deg
+      ),
+    [form.view_angle_deg]
+  );
+  const formViewDistanceM = useMemo(
+    () =>
+      parseBoundedNumber(
+        form.view_distance_m,
+        CAMERA_VIEW_DISTANCE_MIN,
+        CAMERA_VIEW_DISTANCE_MAX,
+        DEFAULT_FORM.view_distance_m
+      ),
+    [form.view_distance_m]
+  );
   const hasFormCoordinates = formLatitude !== null && formLongitude !== null;
   const mapCenter = hasFormCoordinates
     ? [formLatitude, formLongitude]
     : MAP_DEFAULT_CENTER;
   const mapZoom = hasFormCoordinates ? MAP_SELECTED_ZOOM : MAP_DEFAULT_ZOOM;
+  const cameraViewPolygon = useMemo(() => {
+    if (!hasFormCoordinates) {
+      return null;
+    }
+    return buildCameraViewPolygon(
+      formLatitude,
+      formLongitude,
+      formOrientationDeg,
+      formViewAngleDeg,
+      formViewDistanceM
+    );
+  }, [
+    hasFormCoordinates,
+    formLatitude,
+    formLongitude,
+    formOrientationDeg,
+    formViewAngleDeg,
+    formViewDistanceM,
+  ]);
+  const cameraMarkerIcon = useMemo(
+    () =>
+      divIcon({
+        className: "camera-map-icon-wrap",
+        html: '<div class="camera-map-icon"><span class="camera-map-lens"></span></div>',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+      }),
+    []
+  );
 
   const grafanaUrl = useMemo(() => {
     const base = `${GRAFANA_DASHBOARD_URL}?orgId=1&from=now-${dashboardRange}&to=now&refresh=5s&kiosk`;
@@ -527,6 +712,7 @@ export default function App() {
       if (editingId !== null) {
         setEditingId(null);
         setForm(DEFAULT_FORM);
+        setLocationQuery("");
       }
       return;
     }
@@ -542,11 +728,14 @@ export default function App() {
 
     setEditingId(stream.id);
     setForm(streamToForm(stream));
+    setLocationQuery(normalizeLocationName(stream.location_name));
   }, [currentView, selectedStreamId, streams, editingId]);
 
   useEffect(() => {
     setLocationSearchResults([]);
     setLocationSearchError("");
+    setLocationResolvingPoint(false);
+    setLocatingCurrent(false);
   }, [selectedStreamId]);
 
   useEffect(() => {
@@ -757,6 +946,7 @@ export default function App() {
     setSelectedStreamId(stream.id);
     setEditingId(stream.id);
     setForm(streamToForm(stream));
+    setLocationQuery(normalizeLocationName(stream.location_name));
   };
 
   const handleClearStreamSelection = () => {
@@ -765,6 +955,137 @@ export default function App() {
     setForm(DEFAULT_FORM);
     setLocationQuery("");
     setLocationSearchResults([]);
+    setLocationSearchError("");
+    setLocationResolvingPoint(false);
+    setLocatingCurrent(false);
+  };
+
+  const fetchNominatimJson = async (url) => {
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`Lookup failed (${response.status})`);
+    }
+    return response.json();
+  };
+
+  const normalizeLocationCandidates = (
+    payload,
+    source,
+    fallbackLatitude = null,
+    fallbackLongitude = null
+  ) => {
+    if (!Array.isArray(payload)) {
+      return [];
+    }
+    return payload
+      .map((entry) => {
+        const displayName = normalizeLocationName(entry?.display_name || entry?.name || "");
+        const latitude = Number(entry?.lat ?? fallbackLatitude);
+        const longitude = Number(entry?.lon ?? fallbackLongitude);
+        if (!displayName) {
+          return null;
+        }
+        if (!isFiniteInRange(latitude, -90, 90) || !isFiniteInRange(longitude, -180, 180)) {
+          return null;
+        }
+        return {
+          display_name: displayName,
+          lat: latitude,
+          lon: longitude,
+          source,
+        };
+      })
+      .filter(Boolean);
+  };
+
+  const dedupeLocationCandidates = (candidates) => {
+    const seen = new Set();
+    const unique = [];
+    for (const candidate of candidates) {
+      const key = `${candidate.display_name.toLowerCase()}|${Number(candidate.lat).toFixed(5)}|${Number(candidate.lon).toFixed(5)}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      unique.push(candidate);
+    }
+    return unique;
+  };
+
+  const resolvePointLocationCandidates = async (latitude, longitude) => {
+    const roundedLat = Number(latitude.toFixed(6));
+    const roundedLon = Number(longitude.toFixed(6));
+    const reverseResponses = await Promise.all(
+      LOCATION_REVERSE_ZOOM_LEVELS.map((zoom) =>
+        fetchNominatimJson(
+          `https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=${zoom}&lat=${roundedLat}&lon=${roundedLon}`
+        ).catch(() => null)
+      )
+    );
+
+    const candidates = [];
+    reverseResponses.forEach((payload, index) => {
+      if (!payload || typeof payload !== "object") {
+        return;
+      }
+
+      candidates.push(
+        ...normalizeLocationCandidates([payload], index === 0 ? "map" : "around", roundedLat, roundedLon)
+      );
+
+      const address = payload.address && typeof payload.address === "object" ? payload.address : {};
+      const nearbyLabel = normalizeLocationName(
+        [
+          address.road || address.pedestrian || address.neighbourhood || address.suburb,
+          address.city || address.town || address.village || address.county,
+          address.state || address.country,
+        ]
+          .filter(Boolean)
+          .join(", ")
+      );
+      if (nearbyLabel) {
+        candidates.push({
+          display_name: nearbyLabel,
+          lat: roundedLat,
+          lon: roundedLon,
+          source: index === 0 ? "map" : "around",
+        });
+      }
+    });
+
+    candidates.push({
+      display_name: buildPinnedPointName(roundedLat, roundedLon),
+      lat: roundedLat,
+      lon: roundedLon,
+      source: "pin",
+    });
+    return dedupeLocationCandidates(candidates).slice(0, LOCATION_SEARCH_LIMIT);
+  };
+
+  const applyLocationCandidate = (candidate, options = {}) => {
+    const latitude = Number(candidate?.lat);
+    const longitude = Number(candidate?.lon);
+    if (!isFiniteInRange(latitude, -90, 90) || !isFiniteInRange(longitude, -180, 180)) {
+      return;
+    }
+
+    const locationName =
+      normalizeLocationName(candidate.display_name) || buildPinnedPointName(latitude, longitude);
+    setForm((current) => ({
+      ...current,
+      location_name: locationName,
+      latitude: latitude.toFixed(6),
+      longitude: longitude.toFixed(6),
+    }));
+    setLocationQuery(locationName);
+
+    if (!options.keepResults) {
+      setLocationSearchResults([]);
+    }
     setLocationSearchError("");
   };
 
@@ -779,37 +1100,10 @@ export default function App() {
     setLocationSearching(true);
     setLocationSearchError("");
     try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=${LOCATION_SEARCH_LIMIT}&addressdetails=1&q=${encodeURIComponent(query)}`,
-        {
-          headers: {
-            Accept: "application/json",
-          },
-        }
+      const payload = await fetchNominatimJson(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=${LOCATION_SEARCH_LIMIT}&addressdetails=1&q=${encodeURIComponent(query)}`
       );
-      if (!response.ok) {
-        throw new Error(`Lookup failed (${response.status})`);
-      }
-
-      const payload = await response.json();
-      const results = Array.isArray(payload)
-        ? payload
-            .map((entry) => ({
-              display_name: String(entry.display_name || "").trim(),
-              lat: Number(entry.lat),
-              lon: Number(entry.lon),
-            }))
-            .filter(
-              (entry) =>
-                entry.display_name &&
-                Number.isFinite(entry.lat) &&
-                entry.lat >= -90 &&
-                entry.lat <= 90 &&
-                Number.isFinite(entry.lon) &&
-                entry.lon >= -180 &&
-                entry.lon <= 180
-            )
-        : [];
+      const results = normalizeLocationCandidates(payload, "search");
 
       setLocationSearchResults(results);
       if (results.length === 0) {
@@ -823,15 +1117,105 @@ export default function App() {
     }
   };
 
-  const handleApplyLocationResult = (result) => {
-    setForm((current) => ({
-      ...current,
-      latitude: Number(result.lat).toFixed(6),
-      longitude: Number(result.lon).toFixed(6),
-    }));
-    setLocationQuery(result.display_name);
-    setLocationSearchResults([]);
+  const handleUseCurrentLocation = async () => {
+    if (!navigator.geolocation) {
+      setLocationSearchError("Browser geolocation is not available.");
+      return;
+    }
+
+    setLocatingCurrent(true);
     setLocationSearchError("");
+
+    try {
+      const position = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 60000,
+        });
+      });
+
+      const latitude = Number(position.coords.latitude);
+      const longitude = Number(position.coords.longitude);
+      if (!isFiniteInRange(latitude, -90, 90) || !isFiniteInRange(longitude, -180, 180)) {
+        throw new Error("Current coordinates are out of range.");
+      }
+
+      setLocationResolvingPoint(true);
+      const candidates = await resolvePointLocationCandidates(latitude, longitude);
+      const annotated = candidates.map((candidate, index) =>
+        index === 0 ? { ...candidate, source: "current" } : candidate
+      );
+      setLocationSearchResults(annotated);
+      applyLocationCandidate(annotated[0], { keepResults: true });
+    } catch (err) {
+      if (err && typeof err === "object" && "code" in err) {
+        if (err.code === 1) {
+          setLocationSearchError("Location permission was denied.");
+        } else if (err.code === 2) {
+          setLocationSearchError("Current location is unavailable.");
+        } else if (err.code === 3) {
+          setLocationSearchError("Current location request timed out.");
+        } else {
+          setLocationSearchError(String(err.message || "Unable to get current location."));
+        }
+      } else {
+        setLocationSearchError(err.message || "Unable to get current location.");
+      }
+    } finally {
+      setLocationResolvingPoint(false);
+      setLocatingCurrent(false);
+    }
+  };
+
+  const handleMapPointSelection = async (latitude, longitude) => {
+    const roundedLat = Number(latitude.toFixed(6));
+    const roundedLon = Number(longitude.toFixed(6));
+    const fallbackCandidate = {
+      display_name: buildPinnedPointName(roundedLat, roundedLon),
+      lat: roundedLat,
+      lon: roundedLon,
+      source: "pin",
+    };
+
+    applyLocationCandidate(fallbackCandidate, { keepResults: true });
+    setLocationResolvingPoint(true);
+    setLocationSearchError("");
+
+    try {
+      const candidates = await resolvePointLocationCandidates(roundedLat, roundedLon);
+      setLocationSearchResults(candidates);
+      if (candidates.length > 0) {
+        applyLocationCandidate(candidates[0], { keepResults: true });
+      }
+    } catch (err) {
+      setLocationSearchResults([fallbackCandidate]);
+      setLocationSearchError(err.message || "Unable to resolve location labels for this point.");
+    } finally {
+      setLocationResolvingPoint(false);
+    }
+  };
+
+  const handleApplyLocationResult = (result, options = {}) => {
+    applyLocationCandidate(result, options);
+  };
+
+  const handleCameraViewChange = (key, value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return;
+    }
+
+    let bounded = numeric;
+    if (key === "orientation_deg") {
+      bounded = normalizeOrientation(numeric);
+    } else if (key === "view_angle_deg") {
+      bounded = clampNumber(numeric, CAMERA_VIEW_ANGLE_MIN, CAMERA_VIEW_ANGLE_MAX);
+    } else if (key === "view_distance_m") {
+      bounded = clampNumber(numeric, CAMERA_VIEW_DISTANCE_MIN, CAMERA_VIEW_DISTANCE_MAX);
+    }
+
+    setForm((current) => ({ ...current, [key]: Number(bounded.toFixed(1)) }));
   };
 
   const handleSliderChange = (key, value) => {
@@ -1267,9 +1651,20 @@ export default function App() {
                       >
                         {locationSearching ? "Searching..." : "Search"}
                       </button>
+                      <button
+                        type="button"
+                        className="btn tiny ghost"
+                        onClick={handleUseCurrentLocation}
+                        disabled={locatingCurrent}
+                      >
+                        {locatingCurrent ? "Locating..." : "Use Current"}
+                      </button>
                     </div>
                   </label>
                   {locationSearchError && <p className="error">{locationSearchError}</p>}
+                  {locationResolvingPoint && (
+                    <p className="muted">Resolving nearby labels for selected coordinates...</p>
+                  )}
                   {locationSearchResults.length > 0 && (
                     <div className="location-search-results">
                       {locationSearchResults.map((result, index) => (
@@ -1279,16 +1674,32 @@ export default function App() {
                           className="location-search-result"
                           onClick={() => handleApplyLocationResult(result)}
                         >
-                          <span>{result.display_name}</span>
-                          <small>
-                            {toFixedValue(result.lat, 5, "0.00000")},{" "}
-                            {toFixedValue(result.lon, 5, "0.00000")}
-                          </small>
+                          <span className="location-result-title">{result.display_name}</span>
+                          <div className="location-result-meta">
+                            <small>
+                              {toFixedValue(result.lat, 5, "0.00000")},{" "}
+                              {toFixedValue(result.lon, 5, "0.00000")}
+                            </small>
+                            <span className={`location-result-source ${result.source || "search"}`}>
+                              {locationSourceLabel(result.source)}
+                            </span>
+                          </div>
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
+                <label>
+                  Location Name
+                  <input
+                    value={form.location_name}
+                    maxLength={LOCATION_NAME_MAX_LENGTH}
+                    placeholder="Auto-filled from search, map, or current location"
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, location_name: event.target.value }))
+                    }
+                  />
+                </label>
                 <div className="row two-col">
                   <label>
                     Latitude
@@ -1319,6 +1730,47 @@ export default function App() {
                     />
                   </label>
                 </div>
+                <div className="row three-col">
+                  <label>
+                    Orientation (deg, 0=N)
+                    <input
+                      type="number"
+                      step="1"
+                      min={CAMERA_ORIENTATION_MIN}
+                      max={CAMERA_ORIENTATION_MAX}
+                      value={form.orientation_deg}
+                      onChange={(event) =>
+                        handleCameraViewChange("orientation_deg", event.target.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    View Angle (deg)
+                    <input
+                      type="number"
+                      step="1"
+                      min={CAMERA_VIEW_ANGLE_MIN}
+                      max={CAMERA_VIEW_ANGLE_MAX}
+                      value={form.view_angle_deg}
+                      onChange={(event) =>
+                        handleCameraViewChange("view_angle_deg", event.target.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    View Range (m)
+                    <input
+                      type="number"
+                      step="5"
+                      min={CAMERA_VIEW_DISTANCE_MIN}
+                      max={CAMERA_VIEW_DISTANCE_MAX}
+                      value={form.view_distance_m}
+                      onChange={(event) =>
+                        handleCameraViewChange("view_distance_m", event.target.value)
+                      }
+                    />
+                  </label>
+                </div>
                 <div className="row map-row">
                   <button
                     type="button"
@@ -1326,16 +1778,20 @@ export default function App() {
                     onClick={() => {
                       setForm((current) => ({
                         ...current,
+                        location_name: "",
                         latitude: "",
                         longitude: "",
                       }));
                       setLocationSearchError("");
                       setLocationSearchResults([]);
+                      setLocationQuery("");
                     }}
                   >
                     Clear Coordinates
                   </button>
-                  <span className="muted">Zoom and click on the map to set stream coordinates.</span>
+                  <span className="muted">
+                    Search, use current location, or click map to set camera point; adjust orientation and cone.
+                  </span>
                 </div>
                 <div className="stream-map-picker">
                   <MapContainer
@@ -1350,26 +1806,31 @@ export default function App() {
                       url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
                     />
                     <StreamMapClickCapture
-                      onPick={(latitude, longitude) => {
-                        setForm((current) => ({
-                          ...current,
-                          latitude: latitude.toFixed(6),
-                          longitude: longitude.toFixed(6),
-                        }));
-                        setLocationSearchError("");
-                      }}
+                      onPick={handleMapPointSelection}
                     />
                     <StreamMapCenter
                       latitude={formLatitude}
                       longitude={formLongitude}
                       focusKey={selectedStreamId || "new-stream"}
                     />
-                    {hasFormCoordinates && (
-                      <CircleMarker
-                        center={[formLatitude, formLongitude]}
-                        radius={8}
-                        pathOptions={{ color: "#16f2b3", fillColor: "#16f2b3", fillOpacity: 0.8 }}
+                    {hasFormCoordinates && cameraViewPolygon && (
+                      <Polygon
+                        positions={cameraViewPolygon}
+                        pathOptions={{
+                          color: "#16f2b3",
+                          fillColor: "#16f2b3",
+                          fillOpacity: 0.22,
+                          weight: 1.6,
+                        }}
                       />
+                    )}
+                    {hasFormCoordinates && (
+                      <Marker position={[formLatitude, formLongitude]} icon={cameraMarkerIcon}>
+                        <Tooltip direction="top" offset={[0, -14]} opacity={0.9} permanent>
+                          {(normalizeLocationName(form.location_name) || "Camera") +
+                            ` · ${toFixedValue(formOrientationDeg, 0, "0")}°`}
+                        </Tooltip>
+                      </Marker>
                     )}
                   </MapContainer>
                 </div>
@@ -1480,13 +1941,16 @@ export default function App() {
                     <span>Grid {stream.grid_size}</span>
                     <span>Win {stream.win_radius}</span>
                     <span>Thr {stream.threshold}</span>
+                    <span>Cam {toFixedValue(stream.orientation_deg, 0, "0")}deg</span>
                     <span>Worker {stream.worker_status}</span>
                     <span>
                       {stream.latitude !== null &&
                       stream.longitude !== null &&
                       Number.isFinite(Number(stream.latitude)) &&
                       Number.isFinite(Number(stream.longitude))
-                        ? `Lat ${toFixedValue(stream.latitude, 4)} · Lon ${toFixedValue(stream.longitude, 4)}`
+                        ? `${
+                            normalizeLocationName(stream.location_name) || "Unnamed location"
+                          } · Lat ${toFixedValue(stream.latitude, 4)} · Lon ${toFixedValue(stream.longitude, 4)}`
                         : "Location unset"}
                     </span>
                   </div>

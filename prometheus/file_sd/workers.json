@@ -1,15 +1,6 @@
 [
   {
     "targets": [
-      "vector-worker-1e48d34021dd:9100"
-    ],
-    "labels": {
-      "stream_id": "1e48d340-21dd-466e-b805-49d2b23b21bb",
-      "stream_name": "aaaaaaaaa"
-    }
-  },
-  {
-    "targets": [
       "vector-worker-1f01d5fa77a5:9100"
     ],
     "labels": {
@@ -24,6 +15,15 @@
     "labels": {
       "stream_id": "1f14f93b-58b6-42ec-840b-f790c0083324",
       "stream_name": "moremorestreams"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-1e48d34021dd:9100"
+    ],
+    "labels": {
+      "stream_id": "1e48d340-21dd-466e-b805-49d2b23b21bb",
+      "stream_name": "aaaaaaaaa"
     }
   },
   {

@@ -107,8 +107,12 @@ curl -X POST http://localhost:8000/streams \
   -d '{
     "name": "Demo Feed",
     "rtsp_url": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+    "location_name": "San Francisco Civic Center",
     "latitude": 37.7749,
     "longitude": -122.4194,
+    "orientation_deg": 45.0,
+    "view_angle_deg": 60.0,
+    "view_distance_m": 120.0,
     "grid_size": 16,
     "win_radius": 8,
     "threshold": 1.2,
@@ -130,9 +134,11 @@ When activated, the API spins up a dedicated worker container and updates Promet
 1. Create stream with URL.
 2. Select stream in the fleet list and view live preview.
 3. Click **Tune Selected Stream**.
-4. Set stream location by searching address/place, then selecting a result (or zoom/click map / enter `latitude`+`longitude` manually).
-5. Adjust controls (`show_feed`, `show_arrows`, `show_magnitude`, `show_trails`, `grid_size`, `win_radius`, `threshold`, `arrow_scale`, `arrow_opacity`, `gradient_intensity`).
-6. Save config.
+4. Set stream location by searching address/place, clicking map, or using current location.
+5. Choose one of the suggested labels (point + nearby) or edit `Location Name`.
+6. Set camera heading + cone (`orientation_deg`, `view_angle_deg`, `view_distance_m`) to represent direction/FOV on map.
+7. Adjust controls (`show_feed`, `show_arrows`, `show_magnitude`, `show_trails`, `grid_size`, `win_radius`, `threshold`, `arrow_scale`, `arrow_opacity`, `gradient_intensity`).
+8. Save config.
 
 If the stream is active, saving config restarts its worker with the new settings so processing + Grafana metrics use the updated values.
 
@@ -178,7 +184,11 @@ OpenAPI docs:
 - `id` UUID primary key
 - `name` stream display name
 - `rtsp_url` source URL
+- `location_name` optional saved label for the map point/address
 - `latitude`, `longitude` optional stream location coordinates
+- `orientation_deg` camera orientation in degrees (0-359.9)
+- `view_angle_deg` camera field-of-view cone angle (5-170)
+- `view_distance_m` camera cone distance on map in meters
 - `grid_size` sampling grid size
 - `win_radius` LK window radius
 - `threshold` flow magnitude threshold

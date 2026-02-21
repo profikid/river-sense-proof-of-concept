@@ -51,8 +51,12 @@ streams_by_state_metric = Gauge(
 )
 
 SCHEMA_PATCHES = [
+    "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS location_name TEXT",
     "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION",
     "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION",
+    "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS orientation_deg DOUBLE PRECISION",
+    "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS view_angle_deg DOUBLE PRECISION",
+    "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS view_distance_m DOUBLE PRECISION",
     "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS win_radius INTEGER",
     "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS arrow_scale DOUBLE PRECISION",
     "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS arrow_opacity DOUBLE PRECISION",
@@ -69,7 +73,13 @@ SCHEMA_PATCHES = [
     "UPDATE camera_streams SET show_arrows = TRUE WHERE show_arrows IS NULL",
     "UPDATE camera_streams SET show_magnitude = FALSE WHERE show_magnitude IS NULL",
     "UPDATE camera_streams SET show_trails = FALSE WHERE show_trails IS NULL",
+    "UPDATE camera_streams SET orientation_deg = 0.0 WHERE orientation_deg IS NULL",
+    "UPDATE camera_streams SET view_angle_deg = 60.0 WHERE view_angle_deg IS NULL",
+    "UPDATE camera_streams SET view_distance_m = 120.0 WHERE view_distance_m IS NULL",
     "ALTER TABLE camera_streams ALTER COLUMN win_radius SET DEFAULT 8",
+    "ALTER TABLE camera_streams ALTER COLUMN orientation_deg SET DEFAULT 0.0",
+    "ALTER TABLE camera_streams ALTER COLUMN view_angle_deg SET DEFAULT 60.0",
+    "ALTER TABLE camera_streams ALTER COLUMN view_distance_m SET DEFAULT 120.0",
     "ALTER TABLE camera_streams ALTER COLUMN arrow_scale SET DEFAULT 4.0",
     "ALTER TABLE camera_streams ALTER COLUMN arrow_opacity SET DEFAULT 90.0",
     "ALTER TABLE camera_streams ALTER COLUMN gradient_intensity SET DEFAULT 1.0",
@@ -85,6 +95,9 @@ SCHEMA_PATCHES = [
     "ALTER TABLE camera_streams ALTER COLUMN show_arrows SET NOT NULL",
     "ALTER TABLE camera_streams ALTER COLUMN show_magnitude SET NOT NULL",
     "ALTER TABLE camera_streams ALTER COLUMN show_trails SET NOT NULL",
+    "ALTER TABLE camera_streams ALTER COLUMN orientation_deg SET NOT NULL",
+    "ALTER TABLE camera_streams ALTER COLUMN view_angle_deg SET NOT NULL",
+    "ALTER TABLE camera_streams ALTER COLUMN view_distance_m SET NOT NULL",
     "CREATE TABLE IF NOT EXISTS system_settings ("
     "id INTEGER PRIMARY KEY, "
     "live_preview_fps DOUBLE PRECISION NOT NULL DEFAULT 6.0, "
@@ -116,6 +129,16 @@ def apply_schema_patches() -> None:
     with engine.begin() as connection:
         for statement in SCHEMA_PATCHES:
             connection.execute(text(statement))
+
+
+def normalize_location_name(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+
+    cleaned = " ".join(value.split()).strip()
+    if not cleaned:
+        return None
+    return cleaned[:512]
 
 
 def get_or_create_system_settings(db: Session) -> SystemSettings:
@@ -202,8 +225,12 @@ def serialize_stream(stream: CameraStream) -> StreamRead:
         id=stream.id,
         name=stream.name,
         rtsp_url=stream.rtsp_url,
+        location_name=stream.location_name,
         latitude=stream.latitude,
         longitude=stream.longitude,
+        orientation_deg=stream.orientation_deg,
+        view_angle_deg=stream.view_angle_deg,
+        view_distance_m=stream.view_distance_m,
         grid_size=stream.grid_size,
         win_radius=stream.win_radius,
         threshold=stream.threshold,
@@ -307,8 +334,12 @@ def create_stream(payload: StreamCreate, db: Session = Depends(get_db)) -> Strea
     stream = CameraStream(
         name=payload.name.strip(),
         rtsp_url=payload.rtsp_url.strip(),
+        location_name=normalize_location_name(payload.location_name),
         latitude=payload.latitude,
         longitude=payload.longitude,
+        orientation_deg=payload.orientation_deg,
+        view_angle_deg=payload.view_angle_deg,
+        view_distance_m=payload.view_distance_m,
         grid_size=payload.grid_size,
         win_radius=payload.win_radius,
         threshold=payload.threshold,
@@ -391,12 +422,22 @@ def update_stream(stream_id: UUID, payload: StreamUpdate, db: Session = Depends(
     if payload.rtsp_url is not None and payload.rtsp_url.strip() != stream.rtsp_url:
         stream.rtsp_url = payload.rtsp_url.strip()
         should_restart = True
+    if "location_name" in payload.model_fields_set:
+        location_name = normalize_location_name(payload.location_name)
+        if location_name != stream.location_name:
+            stream.location_name = location_name
     if "latitude" in payload.model_fields_set and payload.latitude != stream.latitude:
         stream.latitude = payload.latitude
         should_restart = True
     if "longitude" in payload.model_fields_set and payload.longitude != stream.longitude:
         stream.longitude = payload.longitude
         should_restart = True
+    if payload.orientation_deg is not None and payload.orientation_deg != stream.orientation_deg:
+        stream.orientation_deg = payload.orientation_deg
+    if payload.view_angle_deg is not None and payload.view_angle_deg != stream.view_angle_deg:
+        stream.view_angle_deg = payload.view_angle_deg
+    if payload.view_distance_m is not None and payload.view_distance_m != stream.view_distance_m:
+        stream.view_distance_m = payload.view_distance_m
     if payload.grid_size is not None and payload.grid_size != stream.grid_size:
         stream.grid_size = payload.grid_size
         should_restart = True

@@ -761,7 +761,7 @@ input:focus {
   gap: 0.6rem;
   align-items: center;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .live-controls {
@@ -770,14 +770,133 @@ input:focus {
   flex-wrap: wrap;
 }
 
+.live-toolbar-right {
+  margin-left: auto;
+  display: flex;
+  gap: 0.55rem;
+  align-items: flex-end;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.live-layout-group {
+  display: grid;
+  gap: 0.28rem;
+  justify-items: end;
+}
+
+.live-layout-group-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
+  font-size: 0.69rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.live-layout-group-label-icon {
+  width: 0.74rem;
+  height: 0.74rem;
+  border-radius: 3px;
+  border: 1px solid rgba(132, 211, 214, 0.44);
+  background:
+    linear-gradient(90deg, rgba(132, 211, 214, 0.28) 0 45%, transparent 45% 55%, rgba(132, 211, 214, 0.28) 55%),
+    linear-gradient(rgba(132, 211, 214, 0.18), rgba(132, 211, 214, 0.18));
+}
+
 .live-layout-toggle {
   display: flex;
-  gap: 0.35rem;
+  gap: 0;
   align-items: center;
+  border: 1px solid rgba(132, 211, 214, 0.26);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(9, 24, 32, 0.76);
+  max-width: 100%;
+}
+
+.live-layout-btn {
+  border: 0;
+  border-right: 1px solid rgba(132, 211, 214, 0.24);
+  border-radius: 0;
+  background: transparent;
+  padding: 0.38rem 0.56rem;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
+}
+
+.live-layout-btn:last-child {
+  border-right: 0;
+}
+
+.live-layout-btn:hover:not(:disabled) {
+  transform: none;
+  background: rgba(12, 42, 50, 0.72);
+}
+
+.live-layout-btn.live-layout-clear {
+  color: rgba(216, 236, 240, 0.95);
+}
+
+.live-layout-icon {
+  width: 0.76rem;
+  height: 0.76rem;
+  display: inline-block;
+  position: relative;
+  flex-shrink: 0;
+  color: currentColor;
+}
+
+.live-layout-icon.grid {
+  border: 1px solid currentColor;
+  background:
+    linear-gradient(currentColor 0 0) 1px 1px / 2px 2px no-repeat,
+    linear-gradient(currentColor 0 0) calc(100% - 1px) 1px / 2px 2px no-repeat,
+    linear-gradient(currentColor 0 0) 1px calc(100% - 1px) / 2px 2px no-repeat,
+    linear-gradient(currentColor 0 0) calc(100% - 1px) calc(100% - 1px) / 2px 2px no-repeat;
+}
+
+.live-layout-icon.list {
+  border: 1px solid currentColor;
+  background:
+    linear-gradient(currentColor 0 0) center 2px / 75% 1px no-repeat,
+    linear-gradient(currentColor 0 0) center center / 75% 1px no-repeat,
+    linear-gradient(currentColor 0 0) center calc(100% - 2px) / 75% 1px no-repeat;
+}
+
+.live-layout-icon.map {
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  background:
+    linear-gradient(currentColor 0 0) 27% 0 / 1px 100% no-repeat,
+    linear-gradient(currentColor 0 0) 64% 0 / 1px 100% no-repeat;
+}
+
+.live-layout-icon.clear::before,
+.live-layout-icon.clear::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 1px;
+  height: 100%;
+  background: currentColor;
+}
+
+.live-layout-icon.clear::before {
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.live-layout-icon.clear::after {
+  transform: translateX(-50%) rotate(-45deg);
 }
 
 .live-layout-toggle .btn.active {
   border-color: rgba(22, 242, 179, 0.8);
+  background: rgba(8, 89, 78, 0.5);
 }
 
 .live-control {
@@ -792,6 +911,10 @@ input:focus {
   min-width: 190px;
 }
 
+.live-control-layer-select {
+  min-width: 210px;
+}
+
 .live-control select {
   padding: 0.42rem 0.5rem;
   font-size: 0.78rem;
@@ -800,6 +923,162 @@ input:focus {
 .live-control input {
   padding: 0.42rem 0.5rem;
   font-size: 0.78rem;
+}
+
+.live-layer-multiselect {
+  position: relative;
+}
+
+.live-layer-multiselect-trigger {
+  width: 100%;
+  border: 1px solid rgba(132, 211, 214, 0.28);
+  background: rgba(14, 32, 40, 0.76);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 0.42rem 0.52rem;
+  text-align: left;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+}
+
+.live-layer-multiselect.open .live-layer-multiselect-trigger {
+  border-color: rgba(22, 242, 179, 0.62);
+}
+
+.live-layer-multiselect-caret {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.live-layer-multiselect-menu {
+  position: absolute;
+  z-index: 560;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  right: 0;
+  border: 1px solid rgba(129, 202, 208, 0.35);
+  border-radius: 10px;
+  background: rgba(7, 19, 27, 0.98);
+  box-shadow: 0 18px 30px -22px rgba(0, 0, 0, 0.7);
+  padding: 0.4rem;
+  display: grid;
+  gap: 0.24rem;
+}
+
+.live-layer-option {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.76rem;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.24rem 0.28rem;
+  cursor: pointer;
+}
+
+.live-layer-option:hover {
+  background: rgba(20, 48, 60, 0.7);
+}
+
+.live-overview-map-section {
+  margin-top: 0.75rem;
+  border: 1px solid rgba(135, 207, 211, 0.2);
+  border-radius: 12px;
+  background: rgba(7, 18, 27, 0.58);
+  padding: 0.65rem;
+}
+
+.live-overview-map-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.live-overview-map-header h3 {
+  margin: 0;
+  font-size: 0.88rem;
+  letter-spacing: 0.06em;
+  color: var(--accent-soft);
+}
+
+.live-overview-map-header .muted {
+  margin: 0.22rem 0 0;
+}
+
+.live-map-focus {
+  min-width: 260px;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.live-map-focus-title {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.live-map-focus-metrics {
+  margin-top: 0;
+}
+
+.live-overview-map-shell {
+  margin-top: 0.6rem;
+  border: 1px solid rgba(129, 202, 208, 0.28);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.live-overview-map-canvas {
+  width: 100%;
+  min-height: 640px;
+  background: #eef2f4;
+}
+
+.live-overview-map-canvas .leaflet-control-attribution {
+  background: rgba(255, 255, 255, 0.84);
+  color: #294452;
+  font-size: 0.65rem;
+}
+
+.live-overview-map-canvas .leaflet-control-zoom a {
+  color: #122634;
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(57, 100, 122, 0.3);
+}
+
+.live-map-popup {
+  min-width: 190px;
+  display: grid;
+  gap: 0.32rem;
+}
+
+.live-map-popup strong {
+  font-size: 0.8rem;
+}
+
+.live-map-popup small {
+  color: #355363;
+  font-size: 0.7rem;
+}
+
+.live-map-popup-metrics {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.live-map-popup-metrics span {
+  border-radius: 999px;
+  border: 1px solid rgba(97, 161, 180, 0.45);
+  background: rgba(227, 242, 246, 0.84);
+  color: #123140;
+  padding: 0.15rem 0.4rem;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.66rem;
 }
 
 .live-grid {
@@ -1012,6 +1291,72 @@ input:focus {
   color: var(--accent-soft);
 }
 
+.live-selected-split {
+  display: grid;
+  grid-template-columns: minmax(290px, 0.95fr) minmax(360px, 1.35fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.live-selected-location-panel,
+.live-selected-preview-panel {
+  border: 1px solid rgba(135, 207, 211, 0.22);
+  border-radius: 12px;
+  background: rgba(7, 18, 27, 0.55);
+  padding: 0.7rem;
+}
+
+.live-selected-panel-header {
+  margin-bottom: 0.55rem;
+}
+
+.live-selected-panel-header h3 {
+  margin: 0;
+}
+
+.live-selected-panel-header .muted {
+  margin: 0.26rem 0 0;
+  font-size: 0.74rem;
+}
+
+.live-selected-map-shell {
+  border: 1px solid rgba(129, 202, 208, 0.26);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.live-selected-map-canvas {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: #eef2f4;
+}
+
+.live-selected-map-canvas .leaflet-control-attribution {
+  background: rgba(255, 255, 255, 0.84);
+  color: #294452;
+  font-size: 0.65rem;
+}
+
+.live-selected-map-canvas .leaflet-control-zoom a {
+  color: #122634;
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(57, 100, 122, 0.3);
+}
+
+.live-selected-map-empty {
+  border: 1px dashed rgba(129, 202, 208, 0.36);
+  border-radius: 10px;
+  min-height: 200px;
+  display: grid;
+  place-content: center;
+  padding: 1rem;
+  text-align: center;
+}
+
+.live-selected-preview-panel .live-card.featured {
+  margin-top: 0;
+}
+
 .dashboard-toolbar {
   display: flex;
   gap: 0.9rem;
@@ -1065,7 +1410,13 @@ input:focus {
   }
 
   .live-toolbar-actions {
+    width: 100%;
     justify-content: flex-start;
+  }
+
+  .live-toolbar-right {
+    margin-left: auto;
+    justify-content: flex-end;
   }
 
   .live-list-row-main {
@@ -1075,6 +1426,19 @@ input:focus {
   .live-list-preview .live-frame-shell {
     min-height: unset;
     aspect-ratio: 16 / 9;
+  }
+
+  .live-map-focus {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .live-selected-split {
+    grid-template-columns: 1fr;
+  }
+
+  .live-selected-map-canvas {
+    aspect-ratio: 16 / 10;
   }
 }
 
@@ -1105,5 +1469,9 @@ input:focus {
 
   .grafana-frame {
     min-height: 340px;
+  }
+
+  .live-overview-map-canvas {
+    min-height: 500px;
   }
 }

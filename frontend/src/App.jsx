@@ -1,6 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { divIcon } from "leaflet";
-import { MapContainer, Marker, Polygon, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
+import {
+  CircleMarker,
+  MapContainer,
+  Marker,
+  Polygon,
+  Polyline,
+  Popup,
+  TileLayer,
+  Tooltip,
+  useMap,
+  useMapEvents,
+} from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 const API_BASE = normalizeHttpBase(import.meta.env.VITE_API_URL || "http://localhost:8000");
@@ -92,24 +103,39 @@ const LIVE_STATUS_FILTER_OPTIONS = [
   { value: "error", label: "Error" },
 ];
 
+const LIVE_MAP_COLOR_OPTIONS = [
+  { value: "fps", label: "FPS" },
+  { value: "vector_count", label: "Vectors" },
+  { value: "avg_magnitude", label: "Avg Magnitude" },
+  { value: "direction_degrees", label: "Direction" },
+  { value: "direction_coherence", label: "Direction Align" },
+];
+
+const LIVE_MAP_LAYER_OPTIONS = [
+  { value: "camera_markers", label: "Camera Markers" },
+  { value: "camera_cones", label: "Camera Cones" },
+  { value: "heatmap", label: "Heatmap" },
+];
+
 const LIVE_SORT_FIELD_OPTIONS = [
   { value: "name", label: "Name" },
   { value: "fps", label: "FPS" },
   { value: "vector_count", label: "Vector Count" },
+  { value: "avg_magnitude", label: "Avg Magnitude" },
   { value: "direction_degrees", label: "Direction" },
   { value: "direction_coherence", label: "Direction Align" },
-  { value: "avg_magnitude", label: "Avg Magnitude" },
-  { value: "max_magnitude", label: "Max Magnitude" },
 ];
 
 const LIVE_LAYOUT_OPTIONS = [
   { value: "grid", label: "Grid" },
   { value: "list", label: "List" },
+  { value: "map", label: "Map" },
 ];
 
 const MAP_DEFAULT_CENTER = [37.0902, -95.7129];
 const MAP_DEFAULT_ZOOM = 4;
 const MAP_SELECTED_ZOOM = 13;
+const MAP_LIVE_SINGLE_POINT_ZOOM = 19;
 const CAMERA_ORIENTATION_MIN = 0;
 const CAMERA_ORIENTATION_MAX = 359.9;
 const CAMERA_VIEW_ANGLE_MIN = 5;
@@ -387,6 +413,71 @@ function toFixedValue(value, digits, fallback = "0.0") {
   return numeric.toFixed(digits);
 }
 
+function getLiveMetricValue(payload, metric) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  const raw =
+    metric === "fps"
+      ? payload.fps
+      : metric === "vector_count"
+        ? payload.vector_count
+        : metric === "direction_degrees"
+          ? payload.direction_degrees
+          : metric === "direction_coherence"
+            ? payload.direction_coherence
+            : payload.avg_magnitude;
+  const numeric = Number(raw);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function formatLiveMetricValue(value, metric) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return metric === "vector_count" ? "0" : "0.0";
+  }
+  if (metric === "vector_count") {
+    return `${Math.round(numeric)}`;
+  }
+  if (metric === "avg_magnitude") {
+    return numeric.toFixed(3);
+  }
+  if (metric === "direction_degrees") {
+    return `${numeric.toFixed(1)}°`;
+  }
+  if (metric === "direction_coherence") {
+    return `${(numeric * 100).toFixed(0)}%`;
+  }
+  return numeric.toFixed(1);
+}
+
+function getHeatColor(value, metric, min, max) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return "rgba(127, 176, 190, 0.75)";
+  }
+
+  if (metric === "direction_degrees") {
+    const hue = ((numeric % 360) + 360) % 360;
+    return `hsl(${hue}, 82%, 52%)`;
+  }
+
+  const span = Math.max(1e-6, max - min);
+  const t = clampNumber((numeric - min) / span, 0, 1);
+  const hue = 210 - t * 190;
+  return `hsl(${hue.toFixed(0)}, 84%, 54%)`;
+}
+
+function getHeatRadius(value, min, max) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 14;
+  }
+  const span = Math.max(1e-6, max - min);
+  const t = clampNumber((numeric - min) / span, 0, 1);
+  return 14 + t * 26;
+}
+
 async function apiRequest(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
@@ -454,6 +545,36 @@ function StreamMapCenter({ latitude, longitude, focusKey }) {
   return null;
 }
 
+function LiveOverviewMapViewport({ points, fitKey, singlePointZoom = MAP_SELECTED_ZOOM }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const applyViewport = () => {
+      map.invalidateSize({ pan: false, debounceMoveend: true });
+      if (!Array.isArray(points) || points.length === 0) {
+        map.setView(MAP_DEFAULT_CENTER, MAP_DEFAULT_ZOOM, { animate: false });
+        return;
+      }
+      if (points.length === 1) {
+        map.setView(points[0], singlePointZoom, { animate: false });
+        return;
+      }
+      map.fitBounds(points, {
+        animate: false,
+        padding: [22, 22],
+        maxZoom: 14,
+      });
+    };
+
+    const frameId = window.requestAnimationFrame(applyViewport);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [map, points, fitKey, singlePointZoom]);
+
+  return null;
+}
+
 export default function App() {
   const initialLocation = parseLocationState();
   const [streams, setStreams] = useState([]);
@@ -480,9 +601,17 @@ export default function App() {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [liveNameFilter, setLiveNameFilter] = useState("");
   const [liveStatusFilter, setLiveStatusFilter] = useState("all");
+  const [liveLayout, setLiveLayout] = useState("grid");
   const [liveSortField, setLiveSortField] = useState("name");
   const [liveSortOrder, setLiveSortOrder] = useState("asc");
-  const [liveLayout, setLiveLayout] = useState("grid");
+  const [liveMapColorMetric, setLiveMapColorMetric] = useState("avg_magnitude");
+  const [liveMapLayers, setLiveMapLayers] = useState([
+    "camera_markers",
+    "camera_cones",
+    "heatmap",
+  ]);
+  const [liveMapLayersOpen, setLiveMapLayersOpen] = useState(false);
+  const [liveMapFitKey, setLiveMapFitKey] = useState(0);
   const [locationQuery, setLocationQuery] = useState("");
   const [locationSearching, setLocationSearching] = useState(false);
   const [locationResolvingPoint, setLocationResolvingPoint] = useState(false);
@@ -574,17 +703,17 @@ export default function App() {
 
   const latestStats = framePayload
     ? {
-        fps: toFixedValue(framePayload.fps, 1, "0.0"),
-        avg: toFixedValue(framePayload.avg_magnitude, 3, "0.000"),
-        max: toFixedValue(framePayload.max_magnitude, 3, "0.000"),
-        vectors: framePayload.vector_count ?? 0,
-      }
+      fps: toFixedValue(framePayload.fps, 1, "0.0"),
+      avg: toFixedValue(framePayload.avg_magnitude, 3, "0.000"),
+      max: toFixedValue(framePayload.max_magnitude, 3, "0.000"),
+      vectors: framePayload.vector_count ?? 0,
+    }
     : {
-        fps: "0.0",
-        avg: "0.000",
-        max: "0.000",
-        vectors: 0,
-      };
+      fps: "0.0",
+      avg: "0.000",
+      max: "0.000",
+      vectors: 0,
+    };
 
   const switchView = (nextView) => {
     if (nextView === currentView) {
@@ -1300,7 +1429,7 @@ export default function App() {
     }
   };
 
-  const liveFilteredSortedStreams = useMemo(() => {
+  const liveFilteredStreams = useMemo(() => {
     const nameFilter = liveNameFilter.trim().toLowerCase();
     const filtered = streams.filter((stream) => {
       const streamName = String(stream.name || "").toLowerCase();
@@ -1322,29 +1451,19 @@ export default function App() {
       }
       return true;
     });
+    return filtered;
+  }, [streams, liveNameFilter, liveStatusFilter]);
 
-    const metricValue = (stream) => {
-      const payload = liveFramesByStream[stream.id];
+  const liveFilteredSortedStreams = useMemo(() => {
+    const getSortValue = (stream) => {
       if (liveSortField === "name") {
         return null;
       }
-      const raw =
-        liveSortField === "fps"
-          ? payload?.fps
-          : liveSortField === "vector_count"
-            ? payload?.vector_count
-            : liveSortField === "direction_degrees"
-              ? payload?.direction_degrees
-              : liveSortField === "direction_coherence"
-                ? payload?.direction_coherence
-                : liveSortField === "avg_magnitude"
-                  ? payload?.avg_magnitude
-                  : payload?.max_magnitude;
-      const numeric = Number(raw);
-      return Number.isFinite(numeric) ? numeric : null;
+      const payload = liveFramesByStream[stream.id] || null;
+      return getLiveMetricValue(payload, liveSortField);
     };
 
-    return [...filtered].sort((left, right) => {
+    return [...liveFilteredStreams].sort((left, right) => {
       if (liveSortField === "name") {
         const leftName = String(left.name || "");
         const rightName = String(right.name || "");
@@ -1353,25 +1472,23 @@ export default function App() {
           : rightName.localeCompare(leftName);
       }
 
-      const leftMetric = metricValue(left);
-      const rightMetric = metricValue(right);
-      if (leftMetric === null && rightMetric === null) {
+      const leftValue = getSortValue(left);
+      const rightValue = getSortValue(right);
+      if (leftValue === null && rightValue === null) {
         return String(left.name || "").localeCompare(String(right.name || ""));
       }
-      if (leftMetric === null) {
+      if (leftValue === null) {
         return 1;
       }
-      if (rightMetric === null) {
+      if (rightValue === null) {
         return -1;
       }
-      if (leftMetric === rightMetric) {
+      if (leftValue === rightValue) {
         return String(left.name || "").localeCompare(String(right.name || ""));
       }
-      return liveSortOrder === "asc"
-        ? leftMetric - rightMetric
-        : rightMetric - leftMetric;
+      return liveSortOrder === "asc" ? leftValue - rightValue : rightValue - leftValue;
     });
-  }, [streams, liveFramesByStream, liveNameFilter, liveStatusFilter, liveSortField, liveSortOrder]);
+  }, [liveFilteredStreams, liveFramesByStream, liveSortField, liveSortOrder]);
 
   const selectedLiveStream = selectedStreamId
     ? liveFilteredSortedStreams.find((stream) => stream.id === selectedStreamId) || null
@@ -1379,6 +1496,148 @@ export default function App() {
   const livePrimaryStreams = selectedLiveStream
     ? liveFilteredSortedStreams.filter((stream) => stream.id !== selectedLiveStream.id)
     : liveFilteredSortedStreams;
+
+  const liveMapStreams = useMemo(
+    () =>
+      liveFilteredStreams
+        .map((stream) => {
+          const latitude = Number(stream.latitude);
+          const longitude = Number(stream.longitude);
+          if (!isFiniteInRange(latitude, -90, 90) || !isFiniteInRange(longitude, -180, 180)) {
+            return null;
+          }
+
+          const payload = liveFramesByStream[stream.id] || null;
+          const colorValue = getLiveMetricValue(payload, liveMapColorMetric);
+          const orientationDeg = normalizeOrientation(stream.orientation_deg);
+          const viewAngleDeg = parseBoundedNumber(
+            stream.view_angle_deg,
+            CAMERA_VIEW_ANGLE_MIN,
+            CAMERA_VIEW_ANGLE_MAX,
+            DEFAULT_FORM.view_angle_deg
+          );
+          const viewDistanceM = parseBoundedNumber(
+            stream.view_distance_m,
+            CAMERA_VIEW_DISTANCE_MIN,
+            CAMERA_VIEW_DISTANCE_MAX,
+            DEFAULT_FORM.view_distance_m
+          );
+
+          return {
+            stream,
+            payload,
+            latitude,
+            longitude,
+            orientationDeg,
+            viewAngleDeg,
+            viewDistanceM,
+            colorValue,
+            cameraViewPolygon: buildCameraViewPolygon(
+              latitude,
+              longitude,
+              orientationDeg,
+              viewAngleDeg,
+              viewDistanceM
+            ),
+            cameraOrientationLine: [
+              [latitude, longitude],
+              destinationPoint(latitude, longitude, orientationDeg, Math.max(20, viewDistanceM * 0.55)),
+            ],
+          };
+        })
+        .filter(Boolean),
+    [liveFilteredStreams, liveFramesByStream, liveMapColorMetric]
+  );
+
+  const liveMapPoints = useMemo(
+    () => liveMapStreams.map((entry) => [entry.latitude, entry.longitude]),
+    [liveMapStreams]
+  );
+
+  const liveMapMetricRange = useMemo(() => {
+    const values = liveMapStreams
+      .map((entry) => Number(entry.colorValue))
+      .filter((value) => Number.isFinite(value));
+    if (values.length === 0) {
+      return { min: 0, max: 1 };
+    }
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    if (Math.abs(max - min) < 1e-6) {
+      return { min, max: min + 1 };
+    }
+    return { min, max };
+  }, [liveMapStreams]);
+
+  const liveMapColorLabel = useMemo(
+    () =>
+      LIVE_MAP_COLOR_OPTIONS.find((option) => option.value === liveMapColorMetric)?.label ||
+      "Avg Magnitude",
+    [liveMapColorMetric]
+  );
+  const isLiveMapLayout = liveLayout === "map";
+  const showLiveMapMarkers = liveMapLayers.includes("camera_markers");
+  const showLiveMapCones = liveMapLayers.includes("camera_cones");
+  const showLiveMapHeatmap = liveMapLayers.includes("heatmap");
+  const liveMapLayerSummary = useMemo(() => {
+    const selectedLabels = LIVE_MAP_LAYER_OPTIONS.filter((option) =>
+      liveMapLayers.includes(option.value)
+    ).map((option) => option.label);
+    if (selectedLabels.length === 0) {
+      return "No layers";
+    }
+    if (selectedLabels.length === LIVE_MAP_LAYER_OPTIONS.length) {
+      return "All layers";
+    }
+    return selectedLabels.join(", ");
+  }, [liveMapLayers]);
+
+  useEffect(() => {
+    if (!isLiveMapLayout) {
+      setLiveMapLayersOpen(false);
+    }
+  }, [isLiveMapLayout]);
+
+  const liveMapFocusStream = useMemo(() => {
+    if (selectedStreamId) {
+      const selected = liveMapStreams.find((entry) => entry.stream.id === selectedStreamId);
+      if (selected) {
+        return selected;
+      }
+    }
+    return liveMapStreams[0] || null;
+  }, [selectedStreamId, liveMapStreams]);
+
+  const liveMapFocusPayload = liveMapFocusStream?.payload || null;
+  const liveMapFocusDirectionCoherencePercent = Number.isFinite(
+    Number(liveMapFocusPayload?.direction_coherence)
+  )
+    ? Number(liveMapFocusPayload.direction_coherence) * 100
+    : 0;
+  const selectedLiveMapEntry = useMemo(() => {
+    if (!selectedLiveStream) {
+      return null;
+    }
+    return liveMapStreams.find((entry) => entry.stream.id === selectedLiveStream.id) || null;
+  }, [selectedLiveStream, liveMapStreams]);
+  const selectedLiveMapPoints = useMemo(() => {
+    if (!selectedLiveMapEntry) {
+      return [];
+    }
+    return [[selectedLiveMapEntry.latitude, selectedLiveMapEntry.longitude]];
+  }, [selectedLiveMapEntry]);
+
+  const handleToggleLiveMapLayer = (layerValue) => {
+    setLiveMapLayers((current) => {
+      if (current.includes(layerValue)) {
+        if (current.length === 1) {
+          return current;
+        }
+        return current.filter((entry) => entry !== layerValue);
+      }
+      return [...current, layerValue];
+    });
+  };
 
   const renderLiveCard = (stream, { featured = false } = {}) => {
     const livePayload = liveFramesByStream[stream.id];
@@ -1945,12 +2204,11 @@ export default function App() {
                     <span>Worker {stream.worker_status}</span>
                     <span>
                       {stream.latitude !== null &&
-                      stream.longitude !== null &&
-                      Number.isFinite(Number(stream.latitude)) &&
-                      Number.isFinite(Number(stream.longitude))
-                        ? `${
-                            normalizeLocationName(stream.location_name) || "Unnamed location"
-                          } · Lat ${toFixedValue(stream.latitude, 4)} · Lon ${toFixedValue(stream.longitude, 4)}`
+                        stream.longitude !== null &&
+                        Number.isFinite(Number(stream.latitude)) &&
+                        Number.isFinite(Number(stream.longitude))
+                        ? `${normalizeLocationName(stream.location_name) || "Unnamed location"
+                        } · Lat ${toFixedValue(stream.latitude, 4)} · Lon ${toFixedValue(stream.longitude, 4)}`
                         : "Location unset"}
                     </span>
                   </div>
@@ -2040,14 +2298,6 @@ export default function App() {
         <main className="app-grid dashboard-only">
           <section className="panel live-route-panel">
             <div className="live-toolbar">
-              <div>
-                <h2>Live Stream Overview</h2>
-                <p className="muted">
-                  {selectedLiveStream
-                    ? "Other streams stay in the grid. Selected stream is shown larger below."
-                    : "Latest frame for every stream in one grid. Use filters and sorting to inspect flow faster."}
-                </p>
-              </div>
               <div className="live-toolbar-actions">
                 <div className="live-controls">
                   <label className="live-control live-control-name">
@@ -2072,59 +2322,308 @@ export default function App() {
                       ))}
                     </select>
                   </label>
-                  <label className="live-control">
-                    Sort
-                    <select
-                      value={liveSortField}
-                      onChange={(event) => setLiveSortField(event.target.value)}
-                    >
-                      {LIVE_SORT_FIELD_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="live-control">
-                    Order
-                    <select
-                      value={liveSortOrder}
-                      onChange={(event) => setLiveSortOrder(event.target.value)}
-                    >
-                      <option value="asc">ASC</option>
-                      <option value="desc">DESC</option>
-                    </select>
-                  </label>
+                  {isLiveMapLayout ? (
+                    <>
+                      <label className="live-control">
+                        Colors
+                        <select
+                          value={liveMapColorMetric}
+                          onChange={(event) => setLiveMapColorMetric(event.target.value)}
+                        >
+                          {LIVE_MAP_COLOR_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="live-control live-control-layer-select">
+                        <span>Layers</span>
+                        <div className={`live-layer-multiselect ${liveMapLayersOpen ? "open" : ""}`}>
+                          <button
+                            type="button"
+                            className="live-layer-multiselect-trigger"
+                            onClick={() => setLiveMapLayersOpen((current) => !current)}
+                          >
+                            <span>{liveMapLayerSummary}</span>
+                            <span className="live-layer-multiselect-caret">
+                              {liveMapLayersOpen ? "▴" : "▾"}
+                            </span>
+                          </button>
+                          {liveMapLayersOpen && (
+                            <div className="live-layer-multiselect-menu">
+                              {LIVE_MAP_LAYER_OPTIONS.map((option) => (
+                                <label key={option.value} className="live-layer-option">
+                                  <input
+                                    type="checkbox"
+                                    checked={liveMapLayers.includes(option.value)}
+                                    disabled={
+                                      liveMapLayers.length === 1 &&
+                                      liveMapLayers.includes(option.value)
+                                    }
+                                    onChange={() => handleToggleLiveMapLayer(option.value)}
+                                  />
+                                  <span>{option.label}</span>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <label className="live-control">
+                        Sort
+                        <select
+                          value={liveSortField}
+                          onChange={(event) => setLiveSortField(event.target.value)}
+                        >
+                          {LIVE_SORT_FIELD_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="live-control">
+                        Order
+                        <select
+                          value={liveSortOrder}
+                          onChange={(event) => setLiveSortOrder(event.target.value)}
+                        >
+                          <option value="asc">ASC</option>
+                          <option value="desc">DESC</option>
+                        </select>
+                      </label>
+                    </>
+                  )}
                 </div>
-                <div className="live-layout-toggle" role="tablist" aria-label="Live overview layout">
-                  {LIVE_LAYOUT_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      className={`btn tiny ${liveLayout === option.value ? "primary active" : ""}`}
-                      onClick={() => setLiveLayout(option.value)}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-                {selectedLiveStream && (
-                  <button
-                    type="button"
-                    className="btn tiny ghost"
-                    onClick={() => setSelectedStreamId(null)}
-                  >
-                    Clear Selection
-                  </button>
-                )}
-              </div>
-            </div>
+	                <div className="live-toolbar-right">
+	                  {isLiveMapLayout && (
+	                    <button
+	                      type="button"
+	                      className="btn tiny ghost"
+	                      onClick={() => setLiveMapFitKey((current) => current + 1)}
+	                      disabled={liveMapPoints.length === 0}
+	                    >
+	                      Fit Points
+	                    </button>
+	                  )}
+	                  <div className="live-layout-group">
+	                    <span className="live-layout-group-label">
+	                      <span className="live-layout-group-label-icon" aria-hidden="true" />
+	                      Layout + Selection
+	                    </span>
+	                    <div className="live-layout-toggle" role="group" aria-label="Live overview layout">
+	                      {LIVE_LAYOUT_OPTIONS.map((option) => (
+	                        <button
+	                          key={option.value}
+	                          type="button"
+	                          className={`btn tiny live-layout-btn ${liveLayout === option.value ? "primary active" : ""}`}
+	                          onClick={() => setLiveLayout(option.value)}
+	                        >
+	                          <span className={`live-layout-icon ${option.value}`} aria-hidden="true" />
+	                          <span>{option.label}</span>
+	                        </button>
+	                      ))}
+	                      {selectedLiveStream && (
+	                        <button
+	                          type="button"
+	                          className="btn tiny ghost live-layout-btn live-layout-clear"
+	                          onClick={() => setSelectedStreamId(null)}
+	                        >
+	                          <span className="live-layout-icon clear" aria-hidden="true" />
+	                          <span>Clear</span>
+	                        </button>
+	                      )}
+	                    </div>
+	                  </div>
+	                </div>
+	              </div>
+	            </div>
 
             {error && <p className="error">{error}</p>}
             {streams.length === 0 ? (
               <p className="muted">No streams configured yet.</p>
-            ) : liveFilteredSortedStreams.length === 0 ? (
+            ) : liveFilteredStreams.length === 0 ? (
               <p className="muted">No streams match the current filter.</p>
+            ) : isLiveMapLayout ? (
+              <section className="live-overview-map-section">
+                <div className="live-overview-map-header">
+                  <div>
+                    <h3>Live Map View</h3>
+                    <p className="muted">
+                      Uses Name/Status filters. Click any map point to focus that stream in the overview.
+                    </p>
+                  </div>
+                  <div className="live-map-focus">
+                    <span className="live-map-focus-title">
+                      {liveMapFocusStream ? liveMapFocusStream.stream.name : "No mapped stream selected"}
+                    </span>
+                    <div className="live-metrics live-map-focus-metrics">
+                      <span>FPS {toFixedValue(liveMapFocusPayload?.fps, 1, "0.0")}</span>
+                      <span>Vectors {liveMapFocusPayload?.vector_count ?? 0}</span>
+                      <span>Avg {toFixedValue(liveMapFocusPayload?.avg_magnitude, 3, "0.000")}</span>
+                      <span>Dir {toFixedValue(liveMapFocusPayload?.direction_degrees, 1, "0.0")}°</span>
+                      <span>Align {toFixedValue(liveMapFocusDirectionCoherencePercent, 0, "0")}%</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="live-overview-map-shell">
+                  {liveMapStreams.length === 0 ? (
+                    <p className="muted">
+                      No streams with valid coordinates match the current filters.
+                    </p>
+                  ) : (
+                    <MapContainer
+                      center={MAP_DEFAULT_CENTER}
+                      zoom={MAP_DEFAULT_ZOOM}
+                      scrollWheelZoom
+                      className="live-overview-map-canvas"
+                    >
+                      <TileLayer
+                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+                        subdomains="abcd"
+                        url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+                      />
+                      <LiveOverviewMapViewport
+                        points={liveMapPoints}
+                        fitKey={liveMapFitKey}
+                        singlePointZoom={MAP_LIVE_SINGLE_POINT_ZOOM}
+                      />
+                      {liveMapStreams.map((entry) => {
+                        const { stream, payload, latitude, longitude, orientationDeg, colorValue } = entry;
+                        const isSelected = selectedStreamId === stream.id;
+                        const directionCoherencePercent = Number.isFinite(
+                          Number(payload?.direction_coherence)
+                        )
+                          ? Number(payload.direction_coherence) * 100
+                          : 0;
+                        const heatColor = getHeatColor(
+                          colorValue,
+                          liveMapColorMetric,
+                          liveMapMetricRange.min,
+                          liveMapMetricRange.max
+                        );
+                        const heatRadius = getHeatRadius(
+                          colorValue,
+                          liveMapMetricRange.min,
+                          liveMapMetricRange.max
+                        );
+
+                        return (
+                          <Fragment key={stream.id}>
+                            {showLiveMapCones && (
+                              <>
+                                <Polygon
+                                  positions={entry.cameraViewPolygon}
+                                  pathOptions={{
+                                    color: isSelected ? "#16f2b3" : "#4eb5dd",
+                                    fillColor: isSelected ? "#16f2b3" : "#4eb5dd",
+                                    fillOpacity: isSelected ? 0.2 : 0.12,
+                                    weight: isSelected ? 1.7 : 1.2,
+                                  }}
+                                />
+                                <Polyline
+                                  positions={entry.cameraOrientationLine}
+                                  pathOptions={{
+                                    color: isSelected ? "#16f2b3" : "#6ec5e8",
+                                    weight: isSelected ? 2.1 : 1.6,
+                                    opacity: 0.9,
+                                  }}
+                                />
+                              </>
+                            )}
+                            {showLiveMapMarkers && (
+                              <Marker
+                                position={[latitude, longitude]}
+                                icon={cameraMarkerIcon}
+                                eventHandlers={{
+                                  click: () => setSelectedStreamId(stream.id),
+                                }}
+                              >
+                                <Tooltip direction="top" offset={[0, -14]} opacity={0.9}>
+                                  {stream.name}
+                                </Tooltip>
+                                <Popup>
+                                  <div className="live-map-popup">
+                                    <strong>{stream.name}</strong>
+                                    <div className="live-map-popup-metrics">
+                                      <span>FPS {toFixedValue(payload?.fps, 1, "0.0")}</span>
+                                      <span>Vectors {payload?.vector_count ?? 0}</span>
+                                      <span>Avg {toFixedValue(payload?.avg_magnitude, 3, "0.000")}</span>
+                                      <span>Dir {toFixedValue(payload?.direction_degrees, 1, "0.0")}°</span>
+                                      <span>
+                                        Align {toFixedValue(directionCoherencePercent, 0, "0")}%
+                                      </span>
+                                    </div>
+                                    <small>
+                                      Cam {toFixedValue(orientationDeg, 1, "0.0")}° ·{" "}
+                                      {normalizeLocationName(stream.location_name) ||
+                                        `${toFixedValue(latitude, 4)}, ${toFixedValue(longitude, 4)}`}
+                                    </small>
+                                  </div>
+                                </Popup>
+                              </Marker>
+                            )}
+                            {showLiveMapHeatmap && (
+                              <>
+                                <CircleMarker
+                                  center={[latitude, longitude]}
+                                  radius={heatRadius * 2.7}
+                                  pathOptions={{
+                                    color: heatColor,
+                                    fillColor: heatColor,
+                                    fillOpacity: isSelected ? 0.13 : 0.09,
+                                    weight: 0,
+                                    opacity: 0,
+                                  }}
+                                  eventHandlers={{
+                                    click: () => setSelectedStreamId(stream.id),
+                                  }}
+                                />
+                                <CircleMarker
+                                  center={[latitude, longitude]}
+                                  radius={heatRadius * 1.85}
+                                  pathOptions={{
+                                    color: heatColor,
+                                    fillColor: heatColor,
+                                    fillOpacity: isSelected ? 0.2 : 0.14,
+                                    weight: 0,
+                                    opacity: 0,
+                                  }}
+                                  eventHandlers={{
+                                    click: () => setSelectedStreamId(stream.id),
+                                  }}
+                                />
+                                <CircleMarker
+                                  center={[latitude, longitude]}
+                                  radius={heatRadius}
+                                  pathOptions={{
+                                    color: heatColor,
+                                    fillColor: heatColor,
+                                    fillOpacity: isSelected ? 0.36 : 0.27,
+                                    weight: isSelected ? 1.4 : 0.8,
+                                    opacity: 0.62,
+                                  }}
+                                  eventHandlers={{
+                                    click: () => setSelectedStreamId(stream.id),
+                                  }}
+                                >
+                                  <Tooltip direction="top" opacity={0.95}>
+                                    {`${stream.name} · ${liveMapColorLabel} ${formatLiveMetricValue(colorValue, liveMapColorMetric)}`}
+                                  </Tooltip>
+                                </CircleMarker>
+                              </>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </MapContainer>
+                  )}
+                </div>
+              </section>
             ) : (
               <>
                 {livePrimaryStreams.length > 0 && (
@@ -2146,9 +2645,78 @@ export default function App() {
                 )}
 
                 {selectedLiveStream && (
-                  <section className="live-featured-section">
-                    <h3>Selected Stream</h3>
-                    {renderLiveCard(selectedLiveStream, { featured: true })}
+                  <section className="live-featured-section live-selected-split">
+                    <article className="live-selected-location-panel">
+                      <header className="live-selected-panel-header">
+                        <h3>Selected Location</h3>
+                        <p className="muted">
+                          {normalizeLocationName(selectedLiveStream.location_name) ||
+                            (selectedLiveMapEntry
+                              ? `${toFixedValue(selectedLiveMapEntry.latitude, 4, "0.0000")}, ${toFixedValue(selectedLiveMapEntry.longitude, 4, "0.0000")}`
+                              : "No coordinates configured")}
+                        </p>
+                      </header>
+                      {selectedLiveMapEntry ? (
+                        <div className="live-selected-map-shell">
+                          <MapContainer
+                            center={selectedLiveMapPoints[0]}
+                            zoom={MAP_SELECTED_ZOOM}
+                            scrollWheelZoom
+                            className="live-selected-map-canvas"
+                          >
+                            <TileLayer
+                              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+                              subdomains="abcd"
+                              url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+                            />
+                            <LiveOverviewMapViewport
+                              points={selectedLiveMapPoints}
+                              fitKey={selectedLiveStream.id}
+                            />
+                            <Polygon
+                              positions={selectedLiveMapEntry.cameraViewPolygon}
+                              pathOptions={{
+                                color: "#16f2b3",
+                                fillColor: "#16f2b3",
+                                fillOpacity: 0.2,
+                                weight: 1.7,
+                              }}
+                            />
+                            <Polyline
+                              positions={selectedLiveMapEntry.cameraOrientationLine}
+                              pathOptions={{
+                                color: "#16f2b3",
+                                weight: 2.1,
+                                opacity: 0.9,
+                              }}
+                            />
+                            <Marker
+                              position={[
+                                selectedLiveMapEntry.latitude,
+                                selectedLiveMapEntry.longitude,
+                              ]}
+                              icon={cameraMarkerIcon}
+                            >
+                              <Tooltip direction="top" offset={[0, -14]} opacity={0.9}>
+                                {selectedLiveStream.name}
+                              </Tooltip>
+                            </Marker>
+                          </MapContainer>
+                        </div>
+                      ) : (
+                        <div className="live-selected-map-empty">
+                          <p className="muted">
+                            Set latitude and longitude in Stream Config to show the location.
+                          </p>
+                        </div>
+                      )}
+                    </article>
+                    <article className="live-selected-preview-panel">
+                      <header className="live-selected-panel-header">
+                        <h3>Selected Preview</h3>
+                      </header>
+                      {renderLiveCard(selectedLiveStream, { featured: true })}
+                    </article>
                   </section>
                 )}
               </>

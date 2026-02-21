@@ -18,6 +18,8 @@ class CameraStream(Base):
     orientation_deg = Column(Float, nullable=False, default=0.0)
     view_angle_deg = Column(Float, nullable=False, default=60.0)
     view_distance_m = Column(Float, nullable=False, default=120.0)
+    camera_tilt_deg = Column(Float, nullable=False, default=15.0)
+    camera_height_m = Column(Float, nullable=False, default=4.0)
     grid_size = Column(Integer, nullable=False, default=16)
     win_radius = Column(Integer, nullable=False, default=8)
     threshold = Column(Float, nullable=False, default=1.2)

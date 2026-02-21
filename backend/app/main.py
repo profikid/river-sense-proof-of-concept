@@ -1,6 +1,7 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
@@ -57,6 +58,8 @@ SCHEMA_PATCHES = [
     "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS orientation_deg DOUBLE PRECISION",
     "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS view_angle_deg DOUBLE PRECISION",
     "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS view_distance_m DOUBLE PRECISION",
+    "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS camera_tilt_deg DOUBLE PRECISION",
+    "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS camera_height_m DOUBLE PRECISION",
     "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS win_radius INTEGER",
     "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS arrow_scale DOUBLE PRECISION",
     "ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS arrow_opacity DOUBLE PRECISION",
@@ -76,10 +79,14 @@ SCHEMA_PATCHES = [
     "UPDATE camera_streams SET orientation_deg = 0.0 WHERE orientation_deg IS NULL",
     "UPDATE camera_streams SET view_angle_deg = 60.0 WHERE view_angle_deg IS NULL",
     "UPDATE camera_streams SET view_distance_m = 120.0 WHERE view_distance_m IS NULL",
+    "UPDATE camera_streams SET camera_tilt_deg = 15.0 WHERE camera_tilt_deg IS NULL",
+    "UPDATE camera_streams SET camera_height_m = 4.0 WHERE camera_height_m IS NULL",
     "ALTER TABLE camera_streams ALTER COLUMN win_radius SET DEFAULT 8",
     "ALTER TABLE camera_streams ALTER COLUMN orientation_deg SET DEFAULT 0.0",
     "ALTER TABLE camera_streams ALTER COLUMN view_angle_deg SET DEFAULT 60.0",
     "ALTER TABLE camera_streams ALTER COLUMN view_distance_m SET DEFAULT 120.0",
+    "ALTER TABLE camera_streams ALTER COLUMN camera_tilt_deg SET DEFAULT 15.0",
+    "ALTER TABLE camera_streams ALTER COLUMN camera_height_m SET DEFAULT 4.0",
     "ALTER TABLE camera_streams ALTER COLUMN arrow_scale SET DEFAULT 4.0",
     "ALTER TABLE camera_streams ALTER COLUMN arrow_opacity SET DEFAULT 90.0",
     "ALTER TABLE camera_streams ALTER COLUMN gradient_intensity SET DEFAULT 1.0",
@@ -98,6 +105,8 @@ SCHEMA_PATCHES = [
     "ALTER TABLE camera_streams ALTER COLUMN orientation_deg SET NOT NULL",
     "ALTER TABLE camera_streams ALTER COLUMN view_angle_deg SET NOT NULL",
     "ALTER TABLE camera_streams ALTER COLUMN view_distance_m SET NOT NULL",
+    "ALTER TABLE camera_streams ALTER COLUMN camera_tilt_deg SET NOT NULL",
+    "ALTER TABLE camera_streams ALTER COLUMN camera_height_m SET NOT NULL",
     "CREATE TABLE IF NOT EXISTS system_settings ("
     "id INTEGER PRIMARY KEY, "
     "live_preview_fps DOUBLE PRECISION NOT NULL DEFAULT 6.0, "
@@ -202,11 +211,16 @@ def resolve_stream_status(stream: CameraStream) -> tuple[str, str, Optional[str]
     connection_status = state.get("connection_status")
     last_error = state.get("last_error")
     last_event_at = state.get("last_event_at")
+    recently_started = False
+    if stream.worker_started_at is not None:
+        recently_started = (datetime.utcnow() - stream.worker_started_at).total_seconds() < 30
 
     if not stream.is_active:
         connection_status = "inactive"
         last_error = None
-    elif stream.worker_container_name and worker_status != "running":
+    elif stream.worker_container_name and worker_status in {"missing", "unknown"} and recently_started:
+        connection_status = "starting"
+    elif stream.worker_container_name and worker_status not in {"running", "starting"}:
         connection_status = "worker_down"
         if not last_error:
             last_error = "Worker container is not running."
@@ -239,6 +253,8 @@ def serialize_stream(stream: CameraStream) -> StreamRead:
         orientation_deg=stream.orientation_deg,
         view_angle_deg=stream.view_angle_deg,
         view_distance_m=stream.view_distance_m,
+        camera_tilt_deg=stream.camera_tilt_deg,
+        camera_height_m=stream.camera_height_m,
         grid_size=stream.grid_size,
         win_radius=stream.win_radius,
         threshold=stream.threshold,
@@ -364,6 +380,8 @@ def create_stream(payload: StreamCreate, db: Session = Depends(get_db)) -> Strea
         orientation_deg=payload.orientation_deg,
         view_angle_deg=payload.view_angle_deg,
         view_distance_m=payload.view_distance_m,
+        camera_tilt_deg=payload.camera_tilt_deg,
+        camera_height_m=payload.camera_height_m,
         grid_size=payload.grid_size,
         win_radius=payload.win_radius,
         threshold=payload.threshold,
@@ -462,6 +480,10 @@ def update_stream(stream_id: UUID, payload: StreamUpdate, db: Session = Depends(
         stream.view_angle_deg = payload.view_angle_deg
     if payload.view_distance_m is not None and payload.view_distance_m != stream.view_distance_m:
         stream.view_distance_m = payload.view_distance_m
+    if payload.camera_tilt_deg is not None and payload.camera_tilt_deg != stream.camera_tilt_deg:
+        stream.camera_tilt_deg = payload.camera_tilt_deg
+    if payload.camera_height_m is not None and payload.camera_height_m != stream.camera_height_m:
+        stream.camera_height_m = payload.camera_height_m
     if payload.grid_size is not None and payload.grid_size != stream.grid_size:
         stream.grid_size = payload.grid_size
         should_restart = True

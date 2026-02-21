@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vectorflow-frontend
+  namespace: vectorflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vectorflow-frontend
+  template:
+    metadata:
+      labels:
+        app: vectorflow-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: vectorflow-frontend:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: vectorflow
+spec:
+  selector:
+    app: vectorflow-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

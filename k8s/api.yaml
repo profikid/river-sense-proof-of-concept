@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vectorflow-api
+  namespace: vectorflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vectorflow-api
+  template:
+    metadata:
+      labels:
+        app: vectorflow-api
+    spec:
+      serviceAccountName: vectorflow-api
+      containers:
+        - name: api
+          image: vectorflow-api:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: DATABASE_URL
+              value: postgresql+psycopg2://flow_admin:flow_password@db:5432/flow_db
+            - name: REDIS_URL
+              value: redis://redis:6379/0
+            - name: REDIS_CHANNEL
+              value: flow.frames
+            - name: WORKER_RUNTIME
+              value: kubernetes
+            - name: WORKER_K8S_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: WORKER_K8S_IMAGE_PULL_POLICY
+              value: IfNotPresent
+            - name: WORKER_IMAGE
+              value: vectorflow-worker:local
+            - name: CORS_ORIGINS
+              value: http://localhost:5173,http://localhost:3000,http://localhost:4173
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: vectorflow
+spec:
+  selector:
+    app: vectorflow-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

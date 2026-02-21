@@ -1,38 +1,11 @@
 [
   {
     "targets": [
-      "vector-worker-a59cab3b5630:9100"
+      "vector-worker-427bc821e0c6:9100"
     ],
     "labels": {
-      "stream_id": "a59cab3b-5630-4dad-9bb6-ad39cf981192",
-      "stream_name": "koh phangan"
-    }
-  },
-  {
-    "targets": [
-      "vector-worker-47dcc8420ccc:9100"
-    ],
-    "labels": {
-      "stream_id": "47dcc842-0ccc-461d-969a-6c0faca0e53f",
-      "stream_name": "sdfsdfsdfaaa"
-    }
-  },
-  {
-    "targets": [
-      "vector-worker-288f7af6cbf3:9100"
-    ],
-    "labels": {
-      "stream_id": "288f7af6-cbf3-4539-beef-66e8fef731a2",
-      "stream_name": "werwerewrwer"
-    }
-  },
-  {
-    "targets": [
-      "vector-worker-7c20c864efc4:9100"
-    ],
-    "labels": {
-      "stream_id": "7c20c864-efc4-4899-b0bd-9442df820147",
-      "stream_name": "werwerwerwer"
+      "stream_id": "427bc821-e0c6-4a05-b1c2-887ccd2d9f90",
+      "stream_name": "sdfsdfsdf"
     }
   },
   {
@@ -46,56 +19,29 @@
   },
   {
     "targets": [
-      "vector-worker-d3db111e67b3:9100"
+      "vector-worker-9c7ad1d7c6df:9100"
     ],
     "labels": {
-      "stream_id": "d3db111e-67b3-46ee-93d7-fd285eddd75d",
-      "stream_name": "smoketest"
+      "stream_id": "9c7ad1d7-c6df-4b50-b3a2-2d306ff7f86b",
+      "stream_name": "aasdfsdfdf"
     }
   },
   {
     "targets": [
-      "vector-worker-9b46d796400c:9100"
+      "vector-worker-a0f0a6db5d1f:9100"
     ],
     "labels": {
-      "stream_id": "9b46d796-400c-4929-997a-aea147d24cdb",
-      "stream_name": "fsdfwefewf"
+      "stream_id": "a0f0a6db-5d1f-451d-a21d-048df7d5083c",
+      "stream_name": "dsasd"
     }
   },
   {
     "targets": [
-      "vector-worker-cfdbfe2f9665:9100"
+      "vector-worker-4ba301001829:9100"
     ],
     "labels": {
-      "stream_id": "cfdbfe2f-9665-42ef-9fb5-fb248adbc674",
-      "stream_name": "werwerwer"
-    }
-  },
-  {
-    "targets": [
-      "vector-worker-8e5dc0486983:9100"
-    ],
-    "labels": {
-      "stream_id": "8e5dc048-6983-4533-a1d2-08d504f9a981",
-      "stream_name": "wwwwwwwww"
-    }
-  },
-  {
-    "targets": [
-      "vector-worker-b45ff5e40c05:9100"
-    ],
-    "labels": {
-      "stream_id": "b45ff5e4-0c05-42d9-9c4f-59a1d3f5e9d0",
-      "stream_name": "wqwqw"
-    }
-  },
-  {
-    "targets": [
-      "vector-worker-df25ef1e0ecb:9100"
-    ],
-    "labels": {
-      "stream_id": "df25ef1e-0ecb-48db-a6ca-5b9987c53f1d",
-      "stream_name": "sdfsdfsd"
+      "stream_id": "4ba30100-1829-4617-8bbf-7ef3c8389f73",
+      "stream_name": "another stream"
     }
   }
 ]

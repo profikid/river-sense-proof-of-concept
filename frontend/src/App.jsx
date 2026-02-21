@@ -43,6 +43,8 @@ const DEFAULT_FORM = {
   orientation_deg: 0,
   view_angle_deg: 60,
   view_distance_m: 150,
+  camera_tilt_deg: 15,
+  camera_height_m: 4,
   ...DEFAULT_STREAM_CONFIG,
   is_active: false,
 };
@@ -191,6 +193,12 @@ const CAMERA_VIEW_ANGLE_MAX = 170;
 const CAMERA_VIEW_DISTANCE_MIN = 50;
 const CAMERA_VIEW_DISTANCE_MAX = 1000;
 const CAMERA_VIEW_DISTANCE_STEP = 50;
+const CAMERA_TILT_MIN = -45;
+const CAMERA_TILT_MAX = 89;
+const CAMERA_TILT_STEP = 0.5;
+const CAMERA_HEIGHT_MIN = 0.5;
+const CAMERA_HEIGHT_MAX = 120;
+const CAMERA_HEIGHT_STEP = 0.5;
 const LOCATION_NAME_MAX_LENGTH = 512;
 const LOCATION_SEARCH_MIN_LENGTH = 3;
 const LOCATION_SEARCH_LIMIT = 6;
@@ -392,6 +400,18 @@ function streamToForm(stream) {
         : DEFAULT_FORM.view_distance_m,
       DEFAULT_FORM.view_distance_m
     ),
+    camera_tilt_deg: normalizeCameraTilt(
+      Number.isFinite(Number(stream.camera_tilt_deg))
+        ? Number(stream.camera_tilt_deg)
+        : DEFAULT_FORM.camera_tilt_deg,
+      DEFAULT_FORM.camera_tilt_deg
+    ),
+    camera_height_m: normalizeCameraHeight(
+      Number.isFinite(Number(stream.camera_height_m))
+        ? Number(stream.camera_height_m)
+        : DEFAULT_FORM.camera_height_m,
+      DEFAULT_FORM.camera_height_m
+    ),
     is_active: !!stream.is_active,
     grid_size: stream.grid_size ?? DEFAULT_STREAM_CONFIG.grid_size,
     win_radius: stream.win_radius ?? DEFAULT_STREAM_CONFIG.win_radius,
@@ -486,6 +506,28 @@ function normalizeViewDistance(value, fallback = DEFAULT_FORM.view_distance_m) {
     CAMERA_VIEW_DISTANCE_MIN
   );
   return clampNumber(stepped, CAMERA_VIEW_DISTANCE_MIN, CAMERA_VIEW_DISTANCE_MAX);
+}
+
+function normalizeCameraTilt(value, fallback = DEFAULT_FORM.camera_tilt_deg) {
+  return parseBoundedNumber(value, CAMERA_TILT_MIN, CAMERA_TILT_MAX, fallback);
+}
+
+function normalizeCameraHeight(value, fallback = DEFAULT_FORM.camera_height_m) {
+  return parseBoundedNumber(value, CAMERA_HEIGHT_MIN, CAMERA_HEIGHT_MAX, fallback);
+}
+
+function estimateGroundReachMeters(cameraHeightM, cameraTiltDeg) {
+  const height = Number(cameraHeightM);
+  const tilt = Number(cameraTiltDeg);
+  if (!Number.isFinite(height) || !Number.isFinite(tilt) || height <= 0 || tilt <= 0) {
+    return null;
+  }
+  const tiltRadians = (tilt * Math.PI) / 180;
+  const tiltTangent = Math.tan(tiltRadians);
+  if (!Number.isFinite(tiltTangent) || tiltTangent <= 0.00001) {
+    return null;
+  }
+  return height / tiltTangent;
 }
 
 function orientationFromClientPoint(element, clientX, clientY) {
@@ -639,6 +681,14 @@ function buildPayload(form) {
     form.view_distance_m,
     DEFAULT_FORM.view_distance_m
   );
+  const cameraTilt = normalizeCameraTilt(
+    form.camera_tilt_deg,
+    DEFAULT_FORM.camera_tilt_deg
+  );
+  const cameraHeight = normalizeCameraHeight(
+    form.camera_height_m,
+    DEFAULT_FORM.camera_height_m
+  );
   let locationName = normalizeLocationName(form.location_name);
   if (latitude !== null && longitude !== null && !locationName) {
     locationName = buildPinnedPointName(latitude, longitude);
@@ -653,6 +703,8 @@ function buildPayload(form) {
     orientation_deg: Number(orientation.toFixed(1)),
     view_angle_deg: Number(viewAngle.toFixed(1)),
     view_distance_m: Number(viewDistance.toFixed(0)),
+    camera_tilt_deg: Number(cameraTilt.toFixed(1)),
+    camera_height_m: Number(cameraHeight.toFixed(1)),
     is_active: !!form.is_active,
     grid_size: Number(form.grid_size),
     win_radius: Number(form.win_radius),
@@ -1013,6 +1065,18 @@ export default function App() {
     () => normalizeViewDistance(form.view_distance_m, DEFAULT_FORM.view_distance_m),
     [form.view_distance_m]
   );
+  const formCameraTiltDeg = useMemo(
+    () => normalizeCameraTilt(form.camera_tilt_deg, DEFAULT_FORM.camera_tilt_deg),
+    [form.camera_tilt_deg]
+  );
+  const formCameraHeightM = useMemo(
+    () => normalizeCameraHeight(form.camera_height_m, DEFAULT_FORM.camera_height_m),
+    [form.camera_height_m]
+  );
+  const formGroundReachM = useMemo(
+    () => estimateGroundReachMeters(formCameraHeightM, formCameraTiltDeg),
+    [formCameraHeightM, formCameraTiltDeg]
+  );
   const cameraAnglePreview = useMemo(() => {
     const size = 168;
     const center = size / 2;
@@ -1023,6 +1087,12 @@ export default function App() {
     const leftPoint = compassPoint(center, center, radius, leftBearing);
     const rightPoint = compassPoint(center, center, radius, rightBearing);
     const headingPoint = compassPoint(center, center, radius, formOrientationDeg);
+    const clampedGroundReachRatio = formGroundReachM === null
+      ? null
+      : clampNumber(formGroundReachM / Math.max(1, formViewDistanceM), 0.14, 1);
+    const groundReachPoint = clampedGroundReachRatio === null
+      ? null
+      : compassPoint(center, center, radius * clampedGroundReachRatio, formOrientationDeg);
     const conePath = `M ${center} ${center} L ${leftPoint.x.toFixed(2)} ${leftPoint.y.toFixed(2)} A ${radius} ${radius} 0 0 1 ${rightPoint.x.toFixed(2)} ${rightPoint.y.toFixed(2)} Z`;
 
     return {
@@ -1032,8 +1102,9 @@ export default function App() {
       leftPoint,
       rightPoint,
       headingPoint,
+      groundReachPoint,
     };
-  }, [formOrientationDeg, formViewAngleDeg]);
+  }, [formOrientationDeg, formViewAngleDeg, formViewDistanceM, formGroundReachM]);
   const hasFormCoordinates = formLatitude !== null && formLongitude !== null;
   const mapCenter = hasFormCoordinates
     ? [formLatitude, formLongitude]
@@ -1865,6 +1936,18 @@ export default function App() {
     if (key === "view_distance_m") {
       const steppedDistance = normalizeViewDistance(numeric, formViewDistanceM);
       setForm((current) => ({ ...current, [key]: Number(steppedDistance.toFixed(0)) }));
+      return;
+    }
+
+    if (key === "camera_tilt_deg") {
+      const boundedTilt = normalizeCameraTilt(numeric, formCameraTiltDeg);
+      setForm((current) => ({ ...current, [key]: Number(boundedTilt.toFixed(1)) }));
+      return;
+    }
+
+    if (key === "camera_height_m") {
+      const boundedHeight = normalizeCameraHeight(numeric, formCameraHeightM);
+      setForm((current) => ({ ...current, [key]: Number(boundedHeight.toFixed(1)) }));
       return;
     }
 
@@ -2967,6 +3050,14 @@ export default function App() {
                               x2={cameraAnglePreview.headingPoint.x}
                               y2={cameraAnglePreview.headingPoint.y}
                             />
+                            {cameraAnglePreview.groundReachPoint && (
+                              <circle
+                                className="camera-angle-ground-reach"
+                                cx={cameraAnglePreview.groundReachPoint.x}
+                                cy={cameraAnglePreview.groundReachPoint.y}
+                                r="4.8"
+                              />
+                            )}
                             <text
                               className="camera-angle-north"
                               x={cameraAnglePreview.center}
@@ -2984,6 +3075,19 @@ export default function App() {
                           </svg>
                           <input
                             type="range"
+                            className="camera-tilt-slider-horizontal"
+                            step={CAMERA_TILT_STEP}
+                            min={CAMERA_TILT_MIN}
+                            max={CAMERA_TILT_MAX}
+                            value={formCameraTiltDeg}
+                            aria-label="Camera tilt"
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onChange={(event) =>
+                              handleCameraViewChange("camera_tilt_deg", event.target.value)
+                            }
+                          />
+                          <input
+                            type="range"
                             className="camera-angle-slider-horizontal"
                             step="1"
                             min={CAMERA_VIEW_ANGLE_MIN}
@@ -2993,6 +3097,19 @@ export default function App() {
                             onPointerDown={(event) => event.stopPropagation()}
                             onChange={(event) =>
                               handleCameraViewChange("view_angle_deg", event.target.value)
+                            }
+                          />
+                          <input
+                            type="range"
+                            className="camera-height-slider-vertical"
+                            step={CAMERA_HEIGHT_STEP}
+                            min={CAMERA_HEIGHT_MIN}
+                            max={CAMERA_HEIGHT_MAX}
+                            value={formCameraHeightM}
+                            aria-label="Camera height"
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onChange={(event) =>
+                              handleCameraViewChange("camera_height_m", event.target.value)
                             }
                           />
                           <input
@@ -3013,6 +3130,17 @@ export default function App() {
                           <span>Dir {toFixedValue(formOrientationDeg, 0, "0")}deg</span>
                           <span>Angle {toFixedValue(formViewAngleDeg, 0, "0")}deg</span>
                           <span>Range {toFixedValue(formViewDistanceM, 0, "0")}m</span>
+                          <span>
+                            Tilt {toFixedValue(Math.abs(formCameraTiltDeg), 1, "0.0")}deg{" "}
+                            {formCameraTiltDeg >= 0 ? "down" : "up"}
+                          </span>
+                          <span>Height {toFixedValue(formCameraHeightM, 1, "0.0")}m</span>
+                          <span>
+                            Ground{" "}
+                            {formGroundReachM === null
+                              ? "horizon"
+                              : `${toFixedValue(formGroundReachM, 0, "0")}m`}
+                          </span>
                         </div>
                       </label>
                     </div>
@@ -3035,7 +3163,7 @@ export default function App() {
                         Clear Coordinates
                       </button>
                       <span className="muted">
-                        Search, use current location, or click map to set camera point; adjust orientation and cone.
+                        Search, use current location, or click map to set camera point; adjust orientation, cone, tilt, and mount height.
                       </span>
                     </div>
                   </div>

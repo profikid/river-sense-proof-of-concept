@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS camera_streams (
     orientation_deg DOUBLE PRECISION NOT NULL DEFAULT 0.0,
     view_angle_deg DOUBLE PRECISION NOT NULL DEFAULT 60.0,
     view_distance_m DOUBLE PRECISION NOT NULL DEFAULT 120.0,
+    camera_tilt_deg DOUBLE PRECISION NOT NULL DEFAULT 15.0,
+    camera_height_m DOUBLE PRECISION NOT NULL DEFAULT 4.0,
     grid_size INTEGER NOT NULL DEFAULT 16,
     win_radius INTEGER NOT NULL DEFAULT 8,
     threshold DOUBLE PRECISION NOT NULL DEFAULT 1.2,
@@ -33,6 +35,8 @@ ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;
 ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS orientation_deg DOUBLE PRECISION;
 ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS view_angle_deg DOUBLE PRECISION;
 ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS view_distance_m DOUBLE PRECISION;
+ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS camera_tilt_deg DOUBLE PRECISION;
+ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS camera_height_m DOUBLE PRECISION;
 ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS arrow_scale DOUBLE PRECISION;
 ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS arrow_opacity DOUBLE PRECISION;
 ALTER TABLE camera_streams ADD COLUMN IF NOT EXISTS gradient_intensity DOUBLE PRECISION;
@@ -52,6 +56,8 @@ UPDATE camera_streams SET show_trails = FALSE WHERE show_trails IS NULL;
 UPDATE camera_streams SET orientation_deg = 0.0 WHERE orientation_deg IS NULL;
 UPDATE camera_streams SET view_angle_deg = 60.0 WHERE view_angle_deg IS NULL;
 UPDATE camera_streams SET view_distance_m = 120.0 WHERE view_distance_m IS NULL;
+UPDATE camera_streams SET camera_tilt_deg = 15.0 WHERE camera_tilt_deg IS NULL;
+UPDATE camera_streams SET camera_height_m = 4.0 WHERE camera_height_m IS NULL;
 
 ALTER TABLE camera_streams ALTER COLUMN win_radius SET DEFAULT 8;
 ALTER TABLE camera_streams ALTER COLUMN arrow_scale SET DEFAULT 4.0;
@@ -64,6 +70,8 @@ ALTER TABLE camera_streams ALTER COLUMN show_trails SET DEFAULT FALSE;
 ALTER TABLE camera_streams ALTER COLUMN orientation_deg SET DEFAULT 0.0;
 ALTER TABLE camera_streams ALTER COLUMN view_angle_deg SET DEFAULT 60.0;
 ALTER TABLE camera_streams ALTER COLUMN view_distance_m SET DEFAULT 120.0;
+ALTER TABLE camera_streams ALTER COLUMN camera_tilt_deg SET DEFAULT 15.0;
+ALTER TABLE camera_streams ALTER COLUMN camera_height_m SET DEFAULT 4.0;
 
 ALTER TABLE camera_streams ALTER COLUMN win_radius SET NOT NULL;
 ALTER TABLE camera_streams ALTER COLUMN arrow_scale SET NOT NULL;
@@ -76,6 +84,8 @@ ALTER TABLE camera_streams ALTER COLUMN show_trails SET NOT NULL;
 ALTER TABLE camera_streams ALTER COLUMN orientation_deg SET NOT NULL;
 ALTER TABLE camera_streams ALTER COLUMN view_angle_deg SET NOT NULL;
 ALTER TABLE camera_streams ALTER COLUMN view_distance_m SET NOT NULL;
+ALTER TABLE camera_streams ALTER COLUMN camera_tilt_deg SET NOT NULL;
+ALTER TABLE camera_streams ALTER COLUMN camera_height_m SET NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_camera_streams_active ON camera_streams(is_active);
 

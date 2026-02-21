@@ -1,0 +1,25 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: api
+    static_configs:
+      - targets: ["api:8000"]
+
+  - job_name: vector_flow_workers
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_namespace]
+        action: keep
+        regex: vectorflow
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        action: keep
+        regex: vectorflow-worker
+      - source_labels: [__meta_kubernetes_pod_container_port_number]
+        action: keep
+        regex: "9100"
+      - source_labels: [__meta_kubernetes_pod_annotation_vectorflow_io_stream_id]
+        target_label: stream_id
+      - source_labels: [__meta_kubernetes_pod_annotation_vectorflow_io_stream_name]
+        target_label: stream_name

@@ -550,6 +550,12 @@ input:focus {
   stroke-linecap: round;
 }
 
+.camera-angle-ground-reach {
+  fill: rgba(246, 195, 88, 0.92);
+  stroke: rgba(8, 19, 27, 0.92);
+  stroke-width: 1.5;
+}
+
 .camera-angle-north {
   fill: var(--accent-soft);
   font-size: 11px;
@@ -577,12 +583,35 @@ input:focus {
 
 .camera-angle-slider-horizontal {
   position: absolute;
-  left: 16px;
-  right: 48px;
+  left: 42px;
+  right: 42px;
   bottom: 12px;
-  width: calc(100% - 64px);
+  width: calc(100% - 84px);
   height: 12px;
   accent-color: var(--accent);
+  z-index: 4;
+}
+
+.camera-tilt-slider-horizontal {
+  position: absolute;
+  left: 42px;
+  right: 42px;
+  top: 12px;
+  width: calc(100% - 84px);
+  height: 12px;
+  accent-color: #f6c358;
+  z-index: 4;
+}
+
+.camera-height-slider-vertical {
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  width: 76px;
+  height: 12px;
+  transform: translateY(-50%) rotate(-90deg);
+  transform-origin: center;
+  accent-color: #f6c358;
   z-index: 4;
 }
 

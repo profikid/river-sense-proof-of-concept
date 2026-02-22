@@ -1,11 +1,74 @@
 [
   {
     "targets": [
-      "vector-worker-e3c7a380f873:9100"
+      "vector-worker-1f01d5fa77a5:9100"
     ],
     "labels": {
-      "stream_id": "e3c7a380-f873-48d8-8145-4e6ee93be3bb",
-      "stream_name": "another one"
+      "stream_id": "1f01d5fa-77a5-4501-abac-bbb0ce1c8d10",
+      "stream_name": "joeoe4"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-82cf0765dc67:9100"
+    ],
+    "labels": {
+      "stream_id": "82cf0765-dc67-40b5-88fc-3031b5e8b590",
+      "stream_name": "aaabbccdeeeeffg"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-9833f0dac1b9:9100"
+    ],
+    "labels": {
+      "stream_id": "9833f0da-c1b9-4b13-9ade-cb4315a2c5f7",
+      "stream_name": "jojo"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-1f14f93b58b6:9100"
+    ],
+    "labels": {
+      "stream_id": "1f14f93b-58b6-42ec-840b-f790c0083324",
+      "stream_name": "moremorestreams"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-9b3983dd6999:9100"
+    ],
+    "labels": {
+      "stream_id": "9b3983dd-6999-424e-b82e-185e7f6b59f2",
+      "stream_name": "sdffsd"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-0958d6a8dbd1:9100"
+    ],
+    "labels": {
+      "stream_id": "0958d6a8-dbd1-4bf7-832b-7e5bd93ac9bb",
+      "stream_name": "sdfsdfsdfsdf"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-1e48d34021dd:9100"
+    ],
+    "labels": {
+      "stream_id": "1e48d340-21dd-466e-b805-49d2b23b21bb",
+      "stream_name": "aaaaaaaaa"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-e95ff0b1965b:9100"
+    ],
+    "labels": {
+      "stream_id": "e95ff0b1-965b-40ca-84c0-0f77789901ee",
+      "stream_name": "fsdfsdfsdfsdfswefeefeffe"
     }
   },
   {
@@ -15,6 +78,33 @@
     "labels": {
       "stream_id": "e472c269-b514-4f11-9b4d-8b1b322b7ea1",
       "stream_name": "another one 2"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-9b46d796400c:9100"
+    ],
+    "labels": {
+      "stream_id": "9b46d796-400c-4929-997a-aea147d24cdb",
+      "stream_name": "fsdfwefewf"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-8e5dc0486983:9100"
+    ],
+    "labels": {
+      "stream_id": "8e5dc048-6983-4533-a1d2-08d504f9a981",
+      "stream_name": "wwwwwwwww"
+    }
+  },
+  {
+    "targets": [
+      "vector-worker-18771afab58d:9100"
+    ],
+    "labels": {
+      "stream_id": "18771afa-b58d-4bc1-9a68-c745053ef53a",
+      "stream_name": "more"
     }
   }
 ]

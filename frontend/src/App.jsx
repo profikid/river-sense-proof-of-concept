@@ -1051,6 +1051,21 @@ function alertGroupSeverityBucket(group) {
   return group.latestSeverity || "na";
 }
 
+function buildAlertGroupStateMap(items) {
+  const next = {};
+  if (!Array.isArray(items)) {
+    return next;
+  }
+  for (const item of items) {
+    const identifier = String(item?.identifier || "").trim();
+    if (!identifier) {
+      continue;
+    }
+    next[identifier] = item;
+  }
+  return next;
+}
+
 function getLiveMetricValue(payload, metric) {
   if (!payload || typeof payload !== "object") {
     return null;
@@ -1492,6 +1507,16 @@ export default function App() {
     alertSeverityFilter,
     hideResolvedAlerts,
   ]);
+  const unresolvedAlertGroupCount = useMemo(
+    () =>
+      groupedAlertEvents.reduce(
+        (count, group) => count + (alertGroupStatusBucket(group) === "resolved" ? 0 : 1),
+        0
+      ),
+    [groupedAlertEvents]
+  );
+  const unresolvedAlertGroupCountLabel =
+    unresolvedAlertGroupCount > 99 ? "99+" : String(unresolvedAlertGroupCount);
   const streamComboboxFilteredStreams = useMemo(() => {
     const query = streamComboboxSearch.trim().toLowerCase();
     if (!query) {
@@ -1730,17 +1755,7 @@ export default function App() {
 
   const loadAlertGroupStates = async () => {
     const data = await apiRequest("/alerts/group-states");
-    const next = {};
-    if (Array.isArray(data)) {
-      for (const item of data) {
-        const identifier = String(item?.identifier || "").trim();
-        if (!identifier) {
-          continue;
-        }
-        next[identifier] = item;
-      }
-    }
-    setAlertGroupStates(next);
+    setAlertGroupStates(buildAlertGroupStateMap(data));
   };
 
   const handleSetAlertGroupResolved = async (group, resolved) => {
@@ -1883,17 +1898,7 @@ export default function App() {
         ]);
         if (!cancelled) {
           setAlertEvents(Array.isArray(eventsData) ? eventsData : []);
-          const nextStates = {};
-          if (Array.isArray(stateData)) {
-            for (const item of stateData) {
-              const identifier = String(item?.identifier || "").trim();
-              if (!identifier) {
-                continue;
-              }
-              nextStates[identifier] = item;
-            }
-          }
-          setAlertGroupStates(nextStates);
+          setAlertGroupStates(buildAlertGroupStateMap(stateData));
           setAlertsError("");
         }
       } catch (err) {
@@ -1916,6 +1921,43 @@ export default function App() {
         // Ignore periodic errors and keep last known data.
       });
     }, 10000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [currentView]);
+
+  useEffect(() => {
+    if (currentView === "alerts") {
+      return;
+    }
+
+    let cancelled = false;
+    const fetchAlertsForBadge = async () => {
+      try {
+        const [eventsData, stateData] = await Promise.all([
+          apiRequest("/alerts?limit=500"),
+          apiRequest("/alerts/group-states"),
+        ]);
+        if (!cancelled) {
+          setAlertEvents(Array.isArray(eventsData) ? eventsData : []);
+          setAlertGroupStates(buildAlertGroupStateMap(stateData));
+        }
+      } catch {
+        // Badge refresh is best-effort outside of the alerts page.
+      }
+    };
+
+    fetchAlertsForBadge().catch(() => {
+      // Keep last known count if background refresh fails.
+    });
+
+    const interval = setInterval(() => {
+      fetchAlertsForBadge().catch(() => {
+        // Ignore periodic background failures.
+      });
+    }, 15000);
 
     return () => {
       cancelled = true;
@@ -3394,10 +3436,14 @@ export default function App() {
             </button>
             <button
               type="button"
-              className={`btn tiny ${currentView === "alerts" ? "primary active" : ""}`}
+              className={`btn tiny alerts-nav-button ${currentView === "alerts" ? "primary active" : ""}`}
               onClick={() => switchView("alerts")}
+              title={`${unresolvedAlertGroupCount} unresolved alert group${unresolvedAlertGroupCount === 1 ? "" : "s"}`}
             >
-              Alerts
+              <span>Alerts</span>
+              <span className={`alerts-nav-pill ${unresolvedAlertGroupCount > 0 ? "has-alerts" : ""}`}>
+                {unresolvedAlertGroupCountLabel}
+              </span>
             </button>
             <button
               type="button"

@@ -1,0 +1,71 @@
+name: Deploy Vectorflow VPS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-vectorflow-vps
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      VPS_HOST: 72.60.108.6
+      VPS_PORT: "22"
+      VPS_USER: root
+      DEPLOY_PATH: /opt/vectorflow
+    steps:
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+
+      - name: Trust VPS host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "$VPS_PORT" -H "$VPS_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy over SSH
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+          REPO_URL: https://github.com/${{ github.repository }}.git
+        run: |
+          ssh -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
+            "DEPLOY_PATH='$DEPLOY_PATH' DEPLOY_SHA='$DEPLOY_SHA' REPO_URL='$REPO_URL' bash -se" <<'EOF'
+          set -euo pipefail
+
+          mkdir -p "$DEPLOY_PATH"
+
+          if [ ! -d "$DEPLOY_PATH/.git" ]; then
+            git clone "$REPO_URL" "$DEPLOY_PATH"
+          fi
+
+          cd "$DEPLOY_PATH"
+          git fetch --prune origin
+          git checkout --force "$DEPLOY_SHA"
+
+          if [ ! -f .env.prod ]; then
+            echo "Missing $DEPLOY_PATH/.env.prod (copy from .env.prod.example and fill secrets)" >&2
+            exit 1
+          fi
+
+          set -a
+          . ./.env.prod
+          set +a
+
+          docker network inspect "${TRAEFIK_NETWORK:-proxy}" >/dev/null 2>&1 \
+            || docker network create "${TRAEFIK_NETWORK:-proxy}"
+
+          docker build -t "${WORKER_IMAGE:-vectorflow-worker:latest}" ./worker
+
+          docker compose -p vectorflow --env-file .env.prod -f docker-compose.prod.yml \
+            up -d --build --remove-orphans
+
+          docker image prune -f >/dev/null 2>&1 || true
+          EOF

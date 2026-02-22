@@ -61,7 +61,8 @@ services:
       - "traefik.http.routers.vectorflow-api.entrypoints=websecure"
       - "traefik.http.routers.vectorflow-api.tls=true"
       - "traefik.http.routers.vectorflow-api.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-mytlschallenge}"
-      - "traefik.http.routers.vectorflow-api.middlewares=vectorflow-api-strip@docker"
+      - "traefik.http.routers.vectorflow-api.middlewares=vectorflow-api-auth@docker,vectorflow-api-strip@docker"
+      - "traefik.http.middlewares.vectorflow-api-auth.basicauth.users=demo:$$apr1$$0xjPIrkG$$xHiEc8bJWTsbhV0HUtmd8."
       - "traefik.http.middlewares.vectorflow-api-strip.stripprefix.prefixes=/api"
       - "traefik.http.services.vectorflow-api.loadbalancer.server.port=8000"
     networks:
@@ -107,6 +108,8 @@ services:
       - "traefik.http.routers.vectorflow-grafana.entrypoints=websecure"
       - "traefik.http.routers.vectorflow-grafana.tls=true"
       - "traefik.http.routers.vectorflow-grafana.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-mytlschallenge}"
+      - "traefik.http.routers.vectorflow-grafana.middlewares=vectorflow-grafana-auth@docker"
+      - "traefik.http.middlewares.vectorflow-grafana-auth.basicauth.users=demo:$$apr1$$0xjPIrkG$$xHiEc8bJWTsbhV0HUtmd8."
       - "traefik.http.services.vectorflow-grafana.loadbalancer.server.port=3000"
     networks:
       - vectorflow
@@ -130,6 +133,8 @@ services:
       - "traefik.http.routers.vectorflow.entrypoints=websecure"
       - "traefik.http.routers.vectorflow.tls=true"
       - "traefik.http.routers.vectorflow.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-mytlschallenge}"
+      - "traefik.http.routers.vectorflow.middlewares=vectorflow-frontend-auth@docker"
+      - "traefik.http.middlewares.vectorflow-frontend-auth.basicauth.users=demo:$$apr1$$0xjPIrkG$$xHiEc8bJWTsbhV0HUtmd8."
       - "traefik.http.services.vectorflow.loadbalancer.server.port=80"
     networks:
       - vectorflow
